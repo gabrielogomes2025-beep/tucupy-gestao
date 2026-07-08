@@ -30,7 +30,7 @@ export default async function FeriasPage() {
         description={`${pendentes.length} pendentes de aprovação`}
         action={
           <details className="relative">
-            <summary className="inline-flex list-none cursor-pointer items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2 text-sm font-medium text-[#06120c] hover:bg-primary-dark">
+            <summary className="inline-flex list-none cursor-pointer items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2 text-sm font-medium text-[#0f0f0f] hover:bg-primary-dark">
               + Solicitar
             </summary>
             <Card className="absolute right-0 z-10 mt-2 w-[360px]">

@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { getAccessContext } from "@/lib/access";
 import { signOut } from "@/app/login/actions";
-import { Button } from "@/components/ui";
+import { Button, TucupyMark } from "@/components/ui";
 import type { Module } from "@/lib/types";
 
 const NAV: { href: string; label: string; icon: string; module: Module | null }[] = [
@@ -21,8 +21,8 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     <div className="flex min-h-screen">
       <aside className="flex w-64 shrink-0 flex-col border-r border-border bg-surface px-4 py-6">
         <div className="mb-8 flex items-center gap-2 px-2">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/15 text-sm font-bold text-primary">
-            T
+          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10">
+            <TucupyMark className="h-5 w-3.5" />
           </div>
           <span className="text-sm font-semibold tracking-tight">tucupy · gestão</span>
         </div>

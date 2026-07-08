@@ -20,6 +20,7 @@ const config: Config = {
           dark: "var(--primary-dark)",
         },
         amber: "var(--accent-amber)",
+        success: "var(--success)",
         danger: "var(--danger)",
       },
       fontFamily: {

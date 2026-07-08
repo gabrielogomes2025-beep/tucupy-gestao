@@ -1,5 +1,5 @@
 import { signIn, signUp } from "./actions";
-import { Button, Input, Label } from "@/components/ui";
+import { Button, Input, Label, TucupyMark } from "@/components/ui";
 
 export default async function LoginPage({
   searchParams,
@@ -13,8 +13,8 @@ export default async function LoginPage({
     <div className="flex min-h-screen items-center justify-center px-4">
       <div className="w-full max-w-sm">
         <div className="mb-8 flex flex-col items-center text-center">
-          <div className="mb-3 flex h-11 w-11 items-center justify-center rounded-xl bg-primary/15 text-lg font-bold text-primary">
-            T
+          <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10">
+            <TucupyMark className="h-7 w-5" />
           </div>
           <h1 className="text-lg font-semibold tracking-tight text-ink">tucupy</h1>
           <p className="mt-1 text-sm text-muted">Gestão · Financeiro · RH · Projetos</p>
