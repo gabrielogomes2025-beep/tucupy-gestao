@@ -2,7 +2,7 @@ import { getAccessContext } from "@/lib/access";
 import { Card, PageHeader, Badge, Button, Input, Label, EmptyState } from "@/components/ui";
 import { formatCurrency, formatDate } from "@/lib/format";
 import type { Employee } from "@/lib/types";
-import { createEmployee, toggleEmployeeActive } from "./actions";
+import { createEmployee, updateEmployee, toggleEmployeeActive } from "./actions";
 import { redirect } from "next/navigation";
 
 export default async function RhPage() {
@@ -113,13 +113,66 @@ export default async function RhPage() {
                     </td>
                     {canEdit && (
                       <td className="py-2 pr-3">
-                        <form action={toggleEmployeeActive}>
-                          <input type="hidden" name="id" value={e.id} />
-                          <input type="hidden" name="active" value={String(e.active)} />
-                          <Button variant="ghost" className="px-2 py-1 text-xs" type="submit">
-                            {e.active ? "Desativar" : "Reativar"}
-                          </Button>
-                        </form>
+                        <div className="flex gap-2">
+                          <details className="relative">
+                            <summary className="inline-flex list-none cursor-pointer items-center justify-center rounded-lg border border-border px-2 py-1 text-xs font-medium text-ink hover:bg-surface2">
+                              Editar
+                            </summary>
+                            <Card className="absolute right-0 z-10 mt-2 w-[380px]">
+                              <form action={updateEmployee} className="space-y-3">
+                                <input type="hidden" name="id" value={e.id} />
+                                <div>
+                                  <Label>Nome completo</Label>
+                                  <Input name="full_name" required defaultValue={e.full_name} />
+                                </div>
+                                <div className="grid grid-cols-2 gap-3">
+                                  <div>
+                                    <Label>Email</Label>
+                                    <Input name="email" type="email" defaultValue={e.email ?? ""} />
+                                  </div>
+                                  <div>
+                                    <Label>Telefone</Label>
+                                    <Input name="phone" defaultValue={e.phone ?? ""} />
+                                  </div>
+                                </div>
+                                <div className="grid grid-cols-2 gap-3">
+                                  <div>
+                                    <Label>Cargo</Label>
+                                    <Input name="role" defaultValue={e.role ?? ""} />
+                                  </div>
+                                  <div>
+                                    <Label>Departamento</Label>
+                                    <Input name="department" defaultValue={e.department ?? ""} />
+                                  </div>
+                                </div>
+                                <div className="grid grid-cols-2 gap-3">
+                                  <div>
+                                    <Label>Salário mensal (R$)</Label>
+                                    <Input name="monthly_salary" type="number" step="0.01" min="0" defaultValue={e.monthly_salary} />
+                                  </div>
+                                  <div>
+                                    <Label>Custo/hora projeto (R$)</Label>
+                                    <Input name="hourly_cost" type="number" step="0.01" min="0" defaultValue={e.hourly_cost} />
+                                  </div>
+                                </div>
+                                <div>
+                                  <Label>Data de admissão</Label>
+                                  <Input name="hire_date" type="date" defaultValue={e.hire_date ?? ""} />
+                                </div>
+                                <Button type="submit" className="w-full">
+                                  Salvar alterações
+                                </Button>
+                              </form>
+                            </Card>
+                          </details>
+                          <form action={toggleEmployeeActive}>
+                            <input type="hidden" name="id" value={e.id} />
+                            <input type="hidden" name="active" value={String(e.active)} />
+                            <Button variant="ghost" className="px-2 py-1 text-xs" type="submit">
+                              {e.active ? "Desativar" : "Reativar"}
+                            </Button>
+                          </form>
+                        </div>
                       </td>
                     )}
                   </tr>

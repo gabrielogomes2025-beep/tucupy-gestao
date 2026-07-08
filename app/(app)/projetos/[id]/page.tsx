@@ -1,8 +1,8 @@
 import { getAccessContext } from "@/lib/access";
-import { Card, PageHeader, Badge, Button, Input, Label, Select, EmptyState } from "@/components/ui";
+import { Card, PageHeader, Badge, Button, Input, Label, Select, Textarea, EmptyState } from "@/components/ui";
 import { formatCurrency, formatDate, formatFileSize, formatDateTime } from "@/lib/format";
 import type { Client, Project, ProjectFile } from "@/lib/types";
-import { uploadProjectFile, deleteProjectFile } from "../actions";
+import { uploadProjectFile, deleteProjectFile, updateProject } from "../actions";
 import { redirect, notFound } from "next/navigation";
 import Link from "next/link";
 
@@ -36,6 +36,8 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
 
   if (!project) notFound();
 
+  const { data: clients } = await supabase.from("clients").select("*").order("name").returns<Client[]>();
+
   const { data: files } = await supabase
     .from("project_files")
     .select("*")
@@ -60,7 +62,71 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
       <PageHeader
         title={project.name}
         description={project.clients?.name ? `Cliente: ${project.clients.name}` : "Sem cliente vinculado"}
-        action={<Badge tone={project.status === "em_andamento" ? "good" : "default"}>{STATUS_LABEL[project.status]}</Badge>}
+        action={
+          <div className="flex items-center gap-2">
+            <Badge tone={project.status === "em_andamento" ? "good" : "default"}>{STATUS_LABEL[project.status]}</Badge>
+            {canEdit && (
+              <details className="relative">
+                <summary className="inline-flex list-none cursor-pointer items-center justify-center gap-2 rounded-xl border border-border px-4 py-2 text-sm font-medium text-ink hover:bg-surface2">
+                  Editar projeto
+                </summary>
+                <Card className="absolute right-0 z-10 mt-2 w-[380px]">
+                  <form action={updateProject} className="space-y-3">
+                    <input type="hidden" name="id" value={project.id} />
+                    <div>
+                      <Label>Nome do projeto</Label>
+                      <Input name="name" defaultValue={project.name} required />
+                    </div>
+                    <div>
+                      <Label>Cliente</Label>
+                      <Select name="client_id" defaultValue={project.client_id ?? ""}>
+                        <option value="">— nenhum —</option>
+                        {(clients ?? []).map((c) => (
+                          <option key={c.id} value={c.id}>
+                            {c.name}
+                          </option>
+                        ))}
+                      </Select>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <Label>Status</Label>
+                        <Select name="status" defaultValue={project.status}>
+                          {Object.entries(STATUS_LABEL).map(([v, l]) => (
+                            <option key={v} value={v}>
+                              {l}
+                            </option>
+                          ))}
+                        </Select>
+                      </div>
+                      <div>
+                        <Label>Orçamento (R$)</Label>
+                        <Input name="budget_total" type="number" step="0.01" min="0" defaultValue={project.budget_total} />
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <Label>Início</Label>
+                        <Input name="start_date" type="date" defaultValue={project.start_date ?? ""} />
+                      </div>
+                      <div>
+                        <Label>Previsão de fim</Label>
+                        <Input name="end_date" type="date" defaultValue={project.end_date ?? ""} />
+                      </div>
+                    </div>
+                    <div>
+                      <Label>Descrição</Label>
+                      <Textarea name="description" rows={2} defaultValue={project.description ?? ""} />
+                    </div>
+                    <Button type="submit" className="w-full">
+                      Salvar alterações
+                    </Button>
+                  </form>
+                </Card>
+              </details>
+            )}
+          </div>
+        }
       />
 
       <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-3">

@@ -2,7 +2,7 @@ import { getAccessContext } from "@/lib/access";
 import { Card, PageHeader, Badge, Button, Input, Label, Select, Textarea, EmptyState, Kpi } from "@/components/ui";
 import { formatCurrency, formatDate } from "@/lib/format";
 import type { Project, Transaction } from "@/lib/types";
-import { createTransaction, markStatus, deleteTransaction } from "./actions";
+import { createTransaction, updateTransaction, markStatus, deleteTransaction } from "./actions";
 import { redirect } from "next/navigation";
 
 const CATEGORIES = [
@@ -162,6 +162,68 @@ export default async function FinanceiroPage() {
                               </Button>
                             </form>
                           ) : null}
+                          <details className="relative">
+                            <summary className="inline-flex list-none cursor-pointer items-center justify-center rounded-lg border border-border px-2 py-1 text-xs font-medium text-ink hover:bg-surface2">
+                              Editar
+                            </summary>
+                            <Card className="absolute right-0 z-10 mt-2 w-[340px]">
+                              <form action={updateTransaction} className="space-y-3">
+                                <input type="hidden" name="id" value={t.id} />
+                                <div className="grid grid-cols-2 gap-3">
+                                  <div>
+                                    <Label>Tipo</Label>
+                                    <Select name="type" defaultValue={t.type}>
+                                      <option value="receita">Receita</option>
+                                      <option value="despesa">Despesa</option>
+                                    </Select>
+                                  </div>
+                                  <div>
+                                    <Label>Status</Label>
+                                    <Select name="status" defaultValue={t.status}>
+                                      <option value="previsto">Previsto</option>
+                                      <option value="realizado">Realizado</option>
+                                    </Select>
+                                  </div>
+                                </div>
+                                <div>
+                                  <Label>Categoria</Label>
+                                  <Select name="category" defaultValue={t.category}>
+                                    {CATEGORIES.map((c) => (
+                                      <option key={c} value={c}>
+                                        {c}
+                                      </option>
+                                    ))}
+                                  </Select>
+                                </div>
+                                <div>
+                                  <Label>Valor (R$)</Label>
+                                  <Input name="amount" type="number" step="0.01" min="0" required defaultValue={t.amount} />
+                                </div>
+                                <div>
+                                  <Label>Projeto (opcional)</Label>
+                                  <Select name="project_id" defaultValue={t.project_id ?? ""}>
+                                    <option value="">— nenhum —</option>
+                                    {(projects ?? []).map((p) => (
+                                      <option key={p.id} value={p.id}>
+                                        {p.name}
+                                      </option>
+                                    ))}
+                                  </Select>
+                                </div>
+                                <div>
+                                  <Label>Vencimento</Label>
+                                  <Input name="due_date" type="date" defaultValue={t.due_date ?? ""} />
+                                </div>
+                                <div>
+                                  <Label>Descrição</Label>
+                                  <Textarea name="description" rows={2} defaultValue={t.description ?? ""} />
+                                </div>
+                                <Button type="submit" className="w-full">
+                                  Salvar alterações
+                                </Button>
+                              </form>
+                            </Card>
+                          </details>
                           <form action={deleteTransaction}>
                             <input type="hidden" name="id" value={t.id} />
                             <Button variant="danger" className="px-2 py-1 text-xs" type="submit">

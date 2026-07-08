@@ -26,6 +26,31 @@ export async function createTransaction(formData: FormData) {
   revalidatePath("/dashboard");
 }
 
+export async function updateTransaction(formData: FormData) {
+  const { supabase, can } = await getAccessContext();
+  if (!can("financeiro", "edit")) throw new Error("Sem permissão de edição em Financeiro.");
+
+  const id = String(formData.get("id"));
+  const projectId = String(formData.get("project_id") || "");
+
+  const { error } = await supabase
+    .from("transactions")
+    .update({
+      type: String(formData.get("type") || "despesa"),
+      category: String(formData.get("category") || "Outro"),
+      status: String(formData.get("status") || "previsto"),
+      amount: Number(formData.get("amount") || 0),
+      description: String(formData.get("description") || "") || null,
+      due_date: String(formData.get("due_date") || "") || null,
+      project_id: projectId || null,
+    })
+    .eq("id", id);
+
+  if (error) throw new Error(error.message);
+  revalidatePath("/financeiro");
+  revalidatePath("/dashboard");
+}
+
 export async function markStatus(formData: FormData) {
   const { supabase, can } = await getAccessContext();
   if (!can("financeiro", "edit")) throw new Error("Sem permissão de edição em Financeiro.");

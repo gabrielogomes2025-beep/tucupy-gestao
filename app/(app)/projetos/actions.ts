@@ -38,6 +38,32 @@ export async function createProject(formData: FormData) {
   revalidatePath("/dashboard");
 }
 
+export async function updateProject(formData: FormData) {
+  const { supabase, can } = await getAccessContext();
+  if (!can("projetos", "edit")) throw new Error("Sem permissão de edição em Projetos.");
+
+  const id = String(formData.get("id"));
+  const clientId = String(formData.get("client_id") || "");
+
+  const { error } = await supabase
+    .from("projects")
+    .update({
+      name: String(formData.get("name") || ""),
+      description: String(formData.get("description") || "") || null,
+      status: String(formData.get("status") || "prospeccao"),
+      budget_total: Number(formData.get("budget_total") || 0),
+      start_date: String(formData.get("start_date") || "") || null,
+      end_date: String(formData.get("end_date") || "") || null,
+      client_id: clientId || null,
+    })
+    .eq("id", id);
+
+  if (error) throw new Error(error.message);
+  revalidatePath("/projetos");
+  revalidatePath(`/projetos/${id}`);
+  revalidatePath("/dashboard");
+}
+
 export async function updateProjectStatus(formData: FormData) {
   const { supabase, can } = await getAccessContext();
   if (!can("projetos", "edit")) throw new Error("Sem permissão de edição em Projetos.");

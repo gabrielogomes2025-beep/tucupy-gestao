@@ -23,6 +23,31 @@ export async function createEmployee(formData: FormData) {
   revalidatePath("/dashboard");
 }
 
+export async function updateEmployee(formData: FormData) {
+  const { supabase, can } = await getAccessContext();
+  if (!can("rh", "edit")) throw new Error("Sem permissão de edição em RH.");
+
+  const id = String(formData.get("id"));
+
+  const { error } = await supabase
+    .from("employees")
+    .update({
+      full_name: String(formData.get("full_name") || ""),
+      email: String(formData.get("email") || "") || null,
+      role: String(formData.get("role") || "") || null,
+      department: String(formData.get("department") || "") || null,
+      hire_date: String(formData.get("hire_date") || "") || null,
+      monthly_salary: Number(formData.get("monthly_salary") || 0),
+      hourly_cost: Number(formData.get("hourly_cost") || 0),
+      phone: String(formData.get("phone") || "") || null,
+    })
+    .eq("id", id);
+
+  if (error) throw new Error(error.message);
+  revalidatePath("/rh");
+  revalidatePath("/dashboard");
+}
+
 export async function toggleEmployeeActive(formData: FormData) {
   const { supabase, can } = await getAccessContext();
   if (!can("rh", "edit")) throw new Error("Sem permissão de edição em RH.");
