@@ -99,3 +99,16 @@ export type Transaction = {
   created_at: string;
   projects?: { name: string } | null;
 };
+
+export type ProjectFileCategory = "orcamento" | "contrato" | "nota_fiscal" | "proposta" | "outro";
+
+export type ProjectFile = {
+  id: string;
+  project_id: string;
+  file_name: string;
+  storage_path: string;
+  file_size: number | null;
+  content_type: string | null;
+  category: ProjectFileCategory;
+  created_at: string;
+};

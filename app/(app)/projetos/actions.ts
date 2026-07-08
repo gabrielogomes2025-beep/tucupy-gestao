@@ -49,3 +49,57 @@ export async function updateProjectStatus(formData: FormData) {
   revalidatePath("/projetos");
   revalidatePath("/dashboard");
 }
+
+const MAX_FILE_BYTES = 20 * 1024 * 1024; // 20MB
+
+export async function uploadProjectFile(formData: FormData) {
+  const { supabase, can, user } = await getAccessContext();
+  if (!can("projetos", "edit")) throw new Error("Sem permissão de edição em Projetos.");
+
+  const projectId = String(formData.get("project_id") || "");
+  const category = String(formData.get("category") || "outro");
+  const file = formData.get("file");
+
+  if (!projectId) throw new Error("Projeto inválido.");
+  if (!(file instanceof File) || file.size === 0) throw new Error("Selecione um arquivo.");
+  if (file.size > MAX_FILE_BYTES) throw new Error("Arquivo maior que 20MB.");
+
+  const safeName = file.name.replace(/[^\w.\-]+/g, "_");
+  const storagePath = `${projectId}/${Date.now()}-${safeName}`;
+
+  const { error: uploadError } = await supabase.storage.from("project-files").upload(storagePath, file, {
+    contentType: file.type || "application/octet-stream",
+  });
+  if (uploadError) throw new Error(uploadError.message);
+
+  const { error: dbError } = await supabase.from("project_files").insert({
+    project_id: projectId,
+    file_name: file.name,
+    storage_path: storagePath,
+    file_size: file.size,
+    content_type: file.type || null,
+    category,
+    uploaded_by: user.id,
+  });
+  if (dbError) {
+    await supabase.storage.from("project-files").remove([storagePath]);
+    throw new Error(dbError.message);
+  }
+
+  revalidatePath(`/projetos/${projectId}`);
+}
+
+export async function deleteProjectFile(formData: FormData) {
+  const { supabase, can } = await getAccessContext();
+  if (!can("projetos", "edit")) throw new Error("Sem permissão de edição em Projetos.");
+
+  const id = String(formData.get("id"));
+  const projectId = String(formData.get("project_id"));
+  const storagePath = String(formData.get("storage_path"));
+
+  await supabase.storage.from("project-files").remove([storagePath]);
+  const { error } = await supabase.from("project_files").delete().eq("id", id);
+  if (error) throw new Error(error.message);
+
+  revalidatePath(`/projetos/${projectId}`);
+}

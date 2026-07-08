@@ -4,6 +4,7 @@ import { formatCurrency, formatDate } from "@/lib/format";
 import type { Client, Project } from "@/lib/types";
 import { createClientRecord, createProject, updateProjectStatus } from "./actions";
 import { redirect } from "next/navigation";
+import Link from "next/link";
 
 const STATUS_LABEL: Record<string, string> = {
   prospeccao: "Prospecção",
@@ -145,7 +146,11 @@ export default async function ProjetosPage() {
               <tbody>
                 {list.map((p) => (
                   <tr key={p.id} className="border-b border-border/60">
-                    <td className="py-2 pr-3 font-medium">{p.name}</td>
+                    <td className="py-2 pr-3 font-medium">
+                      <Link href={`/projetos/${p.id}`} className="hover:text-primary hover:underline">
+                        {p.name}
+                      </Link>
+                    </td>
                     <td className="py-2 pr-3 text-muted">{p.clients?.name || "—"}</td>
                     <td className="py-2 pr-3 text-muted">
                       {formatDate(p.start_date)} – {formatDate(p.end_date)}
