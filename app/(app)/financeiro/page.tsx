@@ -35,7 +35,12 @@ export default async function FinanceiroPage() {
   const list = transactions ?? [];
   const receitas = list.filter((t) => t.type === "receita" && t.status === "realizado").reduce((s, t) => s + Number(t.amount), 0);
   const despesas = list.filter((t) => t.type === "despesa" && t.status === "realizado").reduce((s, t) => s + Number(t.amount), 0);
-  const pendentes = list.filter((t) => t.status === "previsto");
+
+  const byDueDateAsc = (a: Transaction, b: Transaction) => (a.due_date ?? "9999-99-99").localeCompare(b.due_date ?? "9999-99-99");
+  const pagamentosAgendados = list.filter((t) => t.type === "despesa" && t.status === "previsto").sort(byDueDateAsc);
+  const recebimentosAgendados = list.filter((t) => t.type === "receita" && t.status === "previsto").sort(byDueDateAsc);
+  const totalPagamentosAgendados = pagamentosAgendados.reduce((s, t) => s + Number(t.amount), 0);
+  const totalRecebimentosAgendados = recebimentosAgendados.reduce((s, t) => s + Number(t.amount), 0);
 
   return (
     <div>
@@ -113,6 +118,84 @@ export default async function FinanceiroPage() {
         <Kpi label="Receitas realizadas" value={formatCurrency(receitas)} tone="good" />
         <Kpi label="Despesas realizadas" value={formatCurrency(despesas)} tone="bad" />
         <Kpi label="Saldo" value={formatCurrency(receitas - despesas)} tone={receitas - despesas >= 0 ? "good" : "bad"} />
+      </div>
+
+      <p className="mb-6 text-xs text-muted">
+        Os valores acima somam apenas lançamentos cadastrados aqui em Financeiro. Orçamento de projeto é só uma
+        referência de planejamento — para ele contar no saldo, lance-o como um lançamento (você pode fazer isso
+        direto na página do projeto).
+      </p>
+
+      <div className="mb-6 grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <Card>
+          <div className="mb-3 flex items-center justify-between">
+            <h2 className="text-sm font-semibold text-ink">Pagamentos agendados (a pagar)</h2>
+            <span className="text-sm font-semibold text-danger">{formatCurrency(totalPagamentosAgendados)}</span>
+          </div>
+          {pagamentosAgendados.length === 0 ? (
+            <EmptyState>Nenhum pagamento agendado.</EmptyState>
+          ) : (
+            <ul className="space-y-2">
+              {pagamentosAgendados.map((t) => (
+                <li key={t.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border px-3 py-2 text-sm">
+                  <div className="min-w-0">
+                    <div className="font-medium">{t.category}</div>
+                    <div className="text-xs text-muted">
+                      {formatDate(t.due_date)} {t.projects?.name ? `· ${t.projects.name}` : ""}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="font-medium text-danger">{formatCurrency(t.amount)}</span>
+                    {canEdit && (
+                      <form action={markStatus}>
+                        <input type="hidden" name="id" value={t.id} />
+                        <input type="hidden" name="status" value="realizado" />
+                        <Button variant="ghost" className="px-2 py-1 text-xs" type="submit">
+                          Marcar pago
+                        </Button>
+                      </form>
+                    )}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Card>
+
+        <Card>
+          <div className="mb-3 flex items-center justify-between">
+            <h2 className="text-sm font-semibold text-ink">Recebimentos agendados (a receber)</h2>
+            <span className="text-sm font-semibold text-success">{formatCurrency(totalRecebimentosAgendados)}</span>
+          </div>
+          {recebimentosAgendados.length === 0 ? (
+            <EmptyState>Nenhum recebimento agendado.</EmptyState>
+          ) : (
+            <ul className="space-y-2">
+              {recebimentosAgendados.map((t) => (
+                <li key={t.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border px-3 py-2 text-sm">
+                  <div className="min-w-0">
+                    <div className="font-medium">{t.category}</div>
+                    <div className="text-xs text-muted">
+                      {formatDate(t.due_date)} {t.projects?.name ? `· ${t.projects.name}` : ""}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="font-medium text-success">{formatCurrency(t.amount)}</span>
+                    {canEdit && (
+                      <form action={markStatus}>
+                        <input type="hidden" name="id" value={t.id} />
+                        <input type="hidden" name="status" value="realizado" />
+                        <Button variant="ghost" className="px-2 py-1 text-xs" type="submit">
+                          Marcar recebido
+                        </Button>
+                      </form>
+                    )}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Card>
       </div>
 
       <Card>

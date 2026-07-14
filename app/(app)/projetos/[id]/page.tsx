@@ -1,10 +1,23 @@
 import { getAccessContext } from "@/lib/access";
 import { Card, PageHeader, Badge, Button, Input, Label, Select, Textarea, EmptyState } from "@/components/ui";
 import { formatCurrency, formatDate, formatFileSize, formatDateTime } from "@/lib/format";
-import type { Client, Project, ProjectFile } from "@/lib/types";
+import type { Client, Project, ProjectFile, Transaction } from "@/lib/types";
 import { uploadProjectFile, deleteProjectFile, updateProject } from "../actions";
+import { createTransaction, markStatus } from "../../financeiro/actions";
 import { redirect, notFound } from "next/navigation";
 import Link from "next/link";
+
+const FIN_CATEGORIES = [
+  "Serviços prestados",
+  "Mensalidade/retainer",
+  "Folha de pagamento",
+  "Infraestrutura/hosting",
+  "Software/licenças",
+  "Marketing",
+  "Impostos",
+  "Aluguel",
+  "Outro",
+];
 
 const STATUS_LABEL: Record<string, string> = {
   prospeccao: "Prospecção",
@@ -27,6 +40,8 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
   const { supabase, can } = await getAccessContext();
   if (!can("projetos", "view")) redirect("/dashboard");
   const canEdit = can("projetos", "edit");
+  const canEditFinanceiro = can("financeiro", "edit");
+  const canViewFinanceiro = can("financeiro", "view");
 
   const { data: project } = await supabase
     .from("projects")
@@ -37,6 +52,20 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
   if (!project) notFound();
 
   const { data: clients } = await supabase.from("clients").select("*").order("name").returns<Client[]>();
+
+  const { data: projectTransactions } = canViewFinanceiro
+    ? await supabase
+        .from("transactions")
+        .select("*")
+        .eq("project_id", id)
+        .order("due_date", { ascending: false })
+        .returns<Transaction[]>()
+    : { data: [] as Transaction[] };
+
+  const txList = projectTransactions ?? [];
+  const txRealizado = txList
+    .filter((t) => t.status === "realizado")
+    .reduce((s, t) => s + Number(t.amount) * (t.type === "despesa" ? -1 : 1), 0);
 
   const { data: files } = await supabase
     .from("project_files")
@@ -148,6 +177,107 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
         <Card className="mb-6">
           <div className="text-xs uppercase tracking-wide text-muted">Descrição</div>
           <p className="mt-2 text-sm text-ink">{project.description}</p>
+        </Card>
+      )}
+
+      {canViewFinanceiro && (
+        <Card className="mb-6">
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h2 className="text-sm font-semibold text-ink">Financeiro do projeto ({txList.length})</h2>
+              <p className="mt-1 text-xs text-muted">
+                O orçamento acima é só planejamento. Para contar no saldo de Financeiro, lance-o aqui.
+              </p>
+            </div>
+            {canEditFinanceiro && (
+              <details className="relative">
+                <summary className="inline-flex list-none cursor-pointer items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2 text-sm font-medium text-[#0f0f0f] hover:bg-primary-dark">
+                  + Lançamento financeiro
+                </summary>
+                <Card className="absolute right-0 z-10 mt-2 w-[380px]">
+                  <form action={createTransaction} className="space-y-3">
+                    <input type="hidden" name="project_id" value={project.id} />
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <Label>Tipo</Label>
+                        <Select name="type" defaultValue="receita">
+                          <option value="receita">Receita</option>
+                          <option value="despesa">Despesa</option>
+                        </Select>
+                      </div>
+                      <div>
+                        <Label>Status</Label>
+                        <Select name="status" defaultValue="previsto">
+                          <option value="previsto">Previsto</option>
+                          <option value="realizado">Realizado</option>
+                        </Select>
+                      </div>
+                    </div>
+                    <div>
+                      <Label>Categoria</Label>
+                      <Select name="category" defaultValue="Serviços prestados">
+                        {FIN_CATEGORIES.map((c) => (
+                          <option key={c} value={c}>
+                            {c}
+                          </option>
+                        ))}
+                      </Select>
+                    </div>
+                    <div>
+                      <Label>Valor (R$)</Label>
+                      <Input name="amount" type="number" step="0.01" min="0" required defaultValue={project.budget_total} />
+                    </div>
+                    <div>
+                      <Label>Vencimento</Label>
+                      <Input name="due_date" type="date" defaultValue={project.end_date ?? ""} />
+                    </div>
+                    <div>
+                      <Label>Descrição</Label>
+                      <Textarea name="description" rows={2} defaultValue={`Referente ao projeto ${project.name}`} />
+                    </div>
+                    <Button type="submit" className="w-full">
+                      Salvar lançamento
+                    </Button>
+                  </form>
+                </Card>
+              </details>
+            )}
+          </div>
+
+          {txList.length === 0 ? (
+            <EmptyState>Nenhum lançamento financeiro vinculado a este projeto ainda.</EmptyState>
+          ) : (
+            <>
+              <div className="mb-3 text-sm">
+                <span className="text-muted">Saldo realizado do projeto: </span>
+                <span className={`font-semibold ${txRealizado >= 0 ? "text-success" : "text-danger"}`}>{formatCurrency(txRealizado)}</span>
+              </div>
+              <ul className="space-y-2">
+                {txList.map((t) => (
+                  <li key={t.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border px-3 py-2 text-sm">
+                    <div className="min-w-0">
+                      <div className="font-medium">{t.category}</div>
+                      <div className="text-xs text-muted">{formatDate(t.due_date)}</div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Badge tone={t.type === "receita" ? "good" : "bad"}>{t.type}</Badge>
+                      <span className={`font-medium ${t.type === "receita" ? "text-primary" : "text-danger"}`}>{formatCurrency(t.amount)}</span>
+                      <Badge tone={t.status === "realizado" ? "good" : "warn"}>{t.status}</Badge>
+                      {canEditFinanceiro && t.status === "previsto" && (
+                        <form action={markStatus}>
+                          <input type="hidden" name="id" value={t.id} />
+                          <input type="hidden" name="status" value="realizado" />
+                          <Button variant="ghost" className="px-2 py-1 text-xs" type="submit">
+                            Confirmar
+                          </Button>
+                        </form>
+                      )}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
         </Card>
       )}
 
