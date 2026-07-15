@@ -1,8 +1,16 @@
 import { getAccessContext } from "@/lib/access";
 import { Card, PageHeader, Badge, Button, Input, Label, Select, EmptyState } from "@/components/ui";
-import { formatCurrency, formatDate, formatDateTime } from "@/lib/format";
-import type { Employee, EmployeeHistoryEntry } from "@/lib/types";
-import { createEmployee, updateEmployee, terminateEmployee, reactivateEmployee } from "./actions";
+import { formatCurrency, formatDate, formatDateTime, formatFileSize } from "@/lib/format";
+import type { Employee, EmployeeDocument, EmployeeHistoryEntry, EmployeeSensitiveData } from "@/lib/types";
+import {
+  createEmployee,
+  updateEmployee,
+  terminateEmployee,
+  reactivateEmployee,
+  upsertEmployeeSensitiveData,
+  uploadEmployeeDocument,
+  deleteEmployeeDocument,
+} from "./actions";
 import { redirect } from "next/navigation";
 
 const TERMINATION_REASON_LABEL: Record<string, string> = {
@@ -17,6 +25,13 @@ const HISTORY_FIELD_LABEL: Record<string, string> = {
   role: "Cargo",
   monthly_salary: "Salário mensal",
   department: "Departamento",
+};
+
+const DOC_CATEGORY_LABEL: Record<string, string> = {
+  contrato: "Contrato assinado",
+  documento_pessoal: "Documento pessoal (RG/CPF)",
+  comprovante_endereco: "Comprovante de endereço",
+  outro: "Outro",
 };
 
 export default async function RhPage() {
@@ -48,6 +63,38 @@ export default async function RhPage() {
   const historyByEmployee = new Map<string, EmployeeHistoryEntry[]>();
   for (const h of history ?? []) {
     historyByEmployee.set(h.employee_id, [...(historyByEmployee.get(h.employee_id) ?? []), h]);
+  }
+
+  const [{ data: sensitiveData }, { data: documents }] = canEdit
+    ? await Promise.all([
+        list.length
+          ? supabase.from("employee_sensitive_data").select("*").in("employee_id", list.map((e) => e.id)).returns<EmployeeSensitiveData[]>()
+          : Promise.resolve({ data: [] as EmployeeSensitiveData[] }),
+        list.length
+          ? supabase
+              .from("employee_documents")
+              .select("*")
+              .in("employee_id", list.map((e) => e.id))
+              .order("created_at", { ascending: false })
+              .returns<EmployeeDocument[]>()
+          : Promise.resolve({ data: [] as EmployeeDocument[] }),
+      ])
+    : [{ data: [] as EmployeeSensitiveData[] }, { data: [] as EmployeeDocument[] }];
+
+  const sensitiveByEmployee = new Map<string, EmployeeSensitiveData>();
+  for (const s of sensitiveData ?? []) sensitiveByEmployee.set(s.employee_id, s);
+
+  const documentsByEmployee = new Map<string, EmployeeDocument[]>();
+  for (const d of documents ?? []) {
+    documentsByEmployee.set(d.employee_id, [...(documentsByEmployee.get(d.employee_id) ?? []), d]);
+  }
+
+  const signedDocUrls = new Map<string, string>();
+  if (canEdit) {
+    for (const d of documents ?? []) {
+      const { data: signed } = await supabase.storage.from("employee-documents").createSignedUrl(d.storage_path, 60 * 60);
+      if (signed?.signedUrl) signedDocUrls.set(d.id, signed.signedUrl);
+    }
   }
 
   return (
@@ -222,6 +269,100 @@ export default async function RhPage() {
                                   ))}
                                 </ul>
                               )}
+                            </Card>
+                          </details>
+                          <details className="relative">
+                            <summary className="inline-flex list-none cursor-pointer items-center justify-center rounded-lg border border-border px-2 py-1 text-xs font-medium text-ink hover:bg-surface2">
+                              Dados sensíveis
+                            </summary>
+                            <Card className="absolute right-0 z-10 mt-2 w-[340px]">
+                              <p className="mb-3 text-xs text-muted">Visível apenas para quem tem edição em RH.</p>
+                              <form action={upsertEmployeeSensitiveData} className="space-y-3">
+                                <input type="hidden" name="employee_id" value={e.id} />
+                                <div className="grid grid-cols-2 gap-3">
+                                  <div>
+                                    <Label>CPF</Label>
+                                    <Input name="cpf" defaultValue={sensitiveByEmployee.get(e.id)?.cpf ?? ""} placeholder="000.000.000-00" />
+                                  </div>
+                                  <div>
+                                    <Label>RG</Label>
+                                    <Input name="rg" defaultValue={sensitiveByEmployee.get(e.id)?.rg ?? ""} />
+                                  </div>
+                                </div>
+                                <div>
+                                  <Label>Chave PIX</Label>
+                                  <Input name="pix_key" defaultValue={sensitiveByEmployee.get(e.id)?.pix_key ?? ""} />
+                                </div>
+                                <div>
+                                  <Label>Banco</Label>
+                                  <Input name="bank_name" defaultValue={sensitiveByEmployee.get(e.id)?.bank_name ?? ""} />
+                                </div>
+                                <div className="grid grid-cols-2 gap-3">
+                                  <div>
+                                    <Label>Agência</Label>
+                                    <Input name="bank_agency" defaultValue={sensitiveByEmployee.get(e.id)?.bank_agency ?? ""} />
+                                  </div>
+                                  <div>
+                                    <Label>Conta</Label>
+                                    <Input name="bank_account" defaultValue={sensitiveByEmployee.get(e.id)?.bank_account ?? ""} />
+                                  </div>
+                                </div>
+                                <Button type="submit" className="w-full">
+                                  Salvar dados
+                                </Button>
+                              </form>
+
+                              <div className="mt-4 border-t border-border pt-3">
+                                <div className="mb-2 text-xs font-semibold text-ink">
+                                  Documentos ({(documentsByEmployee.get(e.id) ?? []).length})
+                                </div>
+                                <form action={uploadEmployeeDocument} className="space-y-2" encType="multipart/form-data">
+                                  <input type="hidden" name="employee_id" value={e.id} />
+                                  <Select name="category" defaultValue="contrato">
+                                    {Object.entries(DOC_CATEGORY_LABEL).map(([v, l]) => (
+                                      <option key={v} value={v}>
+                                        {l}
+                                      </option>
+                                    ))}
+                                  </Select>
+                                  <Input name="file" type="file" required />
+                                  <Button type="submit" variant="ghost" className="w-full text-xs">
+                                    Enviar documento
+                                  </Button>
+                                </form>
+                                {(documentsByEmployee.get(e.id) ?? []).length > 0 && (
+                                  <ul className="mt-3 space-y-2">
+                                    {(documentsByEmployee.get(e.id) ?? []).map((d) => (
+                                      <li key={d.id} className="flex items-center justify-between gap-2 text-xs">
+                                        <div className="min-w-0">
+                                          {signedDocUrls.get(d.id) ? (
+                                            <a
+                                              href={signedDocUrls.get(d.id)}
+                                              target="_blank"
+                                              rel="noreferrer"
+                                              className="truncate text-ink hover:text-primary hover:underline"
+                                            >
+                                              {d.file_name}
+                                            </a>
+                                          ) : (
+                                            <span className="truncate text-ink">{d.file_name}</span>
+                                          )}
+                                          <div className="text-muted">
+                                            {DOC_CATEGORY_LABEL[d.category] || d.category} · {formatFileSize(d.file_size)}
+                                          </div>
+                                        </div>
+                                        <form action={deleteEmployeeDocument}>
+                                          <input type="hidden" name="id" value={d.id} />
+                                          <input type="hidden" name="storage_path" value={d.storage_path} />
+                                          <Button variant="danger" className="px-1.5 py-0.5 text-[10px]" type="submit">
+                                            Excluir
+                                          </Button>
+                                        </form>
+                                      </li>
+                                    ))}
+                                  </ul>
+                                )}
+                              </div>
                             </Card>
                           </details>
                           {e.active ? (

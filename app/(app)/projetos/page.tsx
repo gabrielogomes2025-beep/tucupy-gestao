@@ -2,7 +2,7 @@ import { getAccessContext } from "@/lib/access";
 import { Card, PageHeader, Badge, Button, Input, Label, Select, Textarea, EmptyState } from "@/components/ui";
 import { formatCurrency, formatDate } from "@/lib/format";
 import type { Client, Project } from "@/lib/types";
-import { createClientRecord, createProject, updateProjectStatus } from "./actions";
+import { createClientRecord, updateClientRecord, createProject, updateProjectStatus } from "./actions";
 import { redirect } from "next/navigation";
 import Link from "next/link";
 
@@ -46,13 +46,33 @@ export default async function ProjetosPage() {
                       <Label>Nome do cliente</Label>
                       <Input name="name" required />
                     </div>
-                    <div>
-                      <Label>Email</Label>
-                      <Input name="email" type="email" />
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <Label>Email</Label>
+                        <Input name="email" type="email" />
+                      </div>
+                      <div>
+                        <Label>Telefone</Label>
+                        <Input name="phone" />
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <Label>CNPJ</Label>
+                        <Input name="cnpj" placeholder="00.000.000/0000-00" />
+                      </div>
+                      <div>
+                        <Label>Inscrição estadual</Label>
+                        <Input name="inscricao_estadual" />
+                      </div>
                     </div>
                     <div>
-                      <Label>Telefone</Label>
-                      <Input name="phone" />
+                      <Label>Razão social</Label>
+                      <Input name="razao_social" />
+                    </div>
+                    <div>
+                      <Label>Endereço</Label>
+                      <Input name="endereco" />
                     </div>
                     <Button type="submit" className="w-full">
                       Salvar cliente
@@ -175,6 +195,90 @@ export default async function ProjetosPage() {
                         <Badge>{STATUS_LABEL[p.status]}</Badge>
                       )}
                     </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Card>
+
+      <Card className="mt-6">
+        <h2 className="mb-3 text-sm font-semibold text-ink">Clientes ({(clients ?? []).length})</h2>
+        {(clients ?? []).length === 0 ? (
+          <EmptyState>Nenhum cliente cadastrado ainda.</EmptyState>
+        ) : (
+          <div className="overflow-x-auto scrollbar-thin">
+            <table className="w-full text-left text-sm">
+              <thead>
+                <tr className="border-b border-border text-xs uppercase text-muted">
+                  <th className="py-2 pr-3">Nome</th>
+                  <th className="py-2 pr-3">CNPJ</th>
+                  <th className="py-2 pr-3">Razão social</th>
+                  <th className="py-2 pr-3">Contato</th>
+                  {canEdit && <th className="py-2 pr-3"></th>}
+                </tr>
+              </thead>
+              <tbody>
+                {(clients ?? []).map((c) => (
+                  <tr key={c.id} className="border-b border-border/60">
+                    <td className="py-2 pr-3 font-medium">{c.name}</td>
+                    <td className="py-2 pr-3 text-muted">{c.cnpj || "—"}</td>
+                    <td className="py-2 pr-3 text-muted">{c.razao_social || "—"}</td>
+                    <td className="py-2 pr-3 text-muted">{c.email || c.phone || "—"}</td>
+                    {canEdit && (
+                      <td className="py-2 pr-3">
+                        <details className="relative">
+                          <summary className="inline-flex list-none cursor-pointer items-center justify-center rounded-lg border border-border px-2 py-1 text-xs font-medium text-ink hover:bg-surface2">
+                            Editar
+                          </summary>
+                          <Card className="absolute right-0 z-10 mt-2 w-[360px]">
+                            <form action={updateClientRecord} className="space-y-3">
+                              <input type="hidden" name="id" value={c.id} />
+                              <div>
+                                <Label>Nome do cliente</Label>
+                                <Input name="name" required defaultValue={c.name} />
+                              </div>
+                              <div className="grid grid-cols-2 gap-3">
+                                <div>
+                                  <Label>Email</Label>
+                                  <Input name="email" type="email" defaultValue={c.email ?? ""} />
+                                </div>
+                                <div>
+                                  <Label>Telefone</Label>
+                                  <Input name="phone" defaultValue={c.phone ?? ""} />
+                                </div>
+                              </div>
+                              <div className="grid grid-cols-2 gap-3">
+                                <div>
+                                  <Label>CNPJ</Label>
+                                  <Input name="cnpj" defaultValue={c.cnpj ?? ""} placeholder="00.000.000/0000-00" />
+                                </div>
+                                <div>
+                                  <Label>Inscrição estadual</Label>
+                                  <Input name="inscricao_estadual" defaultValue={c.inscricao_estadual ?? ""} />
+                                </div>
+                              </div>
+                              <div>
+                                <Label>Razão social</Label>
+                                <Input name="razao_social" defaultValue={c.razao_social ?? ""} />
+                              </div>
+                              <div>
+                                <Label>Endereço</Label>
+                                <Input name="endereco" defaultValue={c.endereco ?? ""} />
+                              </div>
+                              <div>
+                                <Label>Observações</Label>
+                                <Textarea name="notes" rows={2} defaultValue={c.notes ?? ""} />
+                              </div>
+                              <Button type="submit" className="w-full">
+                                Salvar alterações
+                              </Button>
+                            </form>
+                          </Card>
+                        </details>
+                      </td>
+                    )}
                   </tr>
                 ))}
               </tbody>

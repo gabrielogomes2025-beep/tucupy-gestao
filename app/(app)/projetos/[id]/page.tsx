@@ -1,7 +1,7 @@
 import { getAccessContext } from "@/lib/access";
 import { Card, PageHeader, Badge, Button, Input, Label, Select, Textarea, EmptyState } from "@/components/ui";
 import { formatCurrency, formatDate, formatFileSize, formatDateTime } from "@/lib/format";
-import type { Client, Employee, Project, ProjectBudgetCategory, ProjectFile, ProjectTeamMember, Transaction } from "@/lib/types";
+import type { Client, Employee, Project, ProjectBudgetCategory, ProjectFile, ProjectTask, ProjectTeamMember, Transaction } from "@/lib/types";
 import {
   uploadProjectFile,
   deleteProjectFile,
@@ -10,6 +10,10 @@ import {
   removeProjectTeamMember,
   upsertBudgetCategory,
   deleteBudgetCategory,
+  createProjectTask,
+  updateProjectTaskStatus,
+  updateProjectTask,
+  deleteProjectTask,
 } from "../actions";
 import { createTransaction, markStatus } from "../../financeiro/actions";
 import { redirect, notFound } from "next/navigation";
@@ -42,6 +46,18 @@ const CATEGORY_LABEL: Record<string, string> = {
   proposta: "Proposta",
   outro: "Outro",
 };
+
+const TASK_STATUS_LABEL: Record<string, string> = {
+  todo: "A fazer",
+  doing: "Em andamento",
+  done: "Concluído",
+};
+
+const TASK_COLUMNS: { status: "todo" | "doing" | "done"; label: string }[] = [
+  { status: "todo", label: "A fazer" },
+  { status: "doing", label: "Em andamento" },
+  { status: "done", label: "Concluído" },
+];
 
 export default async function ProjectDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -77,7 +93,7 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
     .filter((t) => t.status === "realizado")
     .reduce((s, t) => s + Number(t.amount) * (t.type === "despesa" ? -1 : 1), 0);
 
-  const [{ data: teamMembers }, { data: activeEmployees }, { data: budgetCategories }] = await Promise.all([
+  const [{ data: teamMembers }, { data: activeEmployees }, { data: budgetCategories }, { data: tasks }] = await Promise.all([
     canViewTeam
       ? supabase
           .from("project_team")
@@ -85,13 +101,22 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
           .eq("project_id", id)
           .returns<ProjectTeamMember[]>()
       : Promise.resolve({ data: [] as ProjectTeamMember[] }),
-    canEditTeam
+    canEditTeam || canEdit
       ? supabase.from("employees").select("id, full_name").eq("active", true).order("full_name").returns<Pick<Employee, "id" | "full_name">[]>()
       : Promise.resolve({ data: [] as Pick<Employee, "id" | "full_name">[] }),
     canViewFinanceiro
       ? supabase.from("project_budget_categories").select("*").eq("project_id", id).order("category").returns<ProjectBudgetCategory[]>()
       : Promise.resolve({ data: [] as ProjectBudgetCategory[] }),
+    supabase
+      .from("project_tasks")
+      .select("*, employees(full_name)")
+      .eq("project_id", id)
+      .order("position", { ascending: true })
+      .order("created_at", { ascending: true })
+      .returns<ProjectTask[]>(),
   ]);
+
+  const taskList = tasks ?? [];
 
   const team = teamMembers ?? [];
   const teamCost = team.reduce((s, m) => s + Number(m.allocated_hours) * Number(m.hourly_cost_snapshot), 0);
@@ -214,6 +239,165 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
           <p className="mt-2 text-sm text-ink">{project.description}</p>
         </Card>
       )}
+
+      <Card className="mb-6">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="text-sm font-semibold text-ink">Tarefas ({taskList.length})</h2>
+            <p className="mt-1 text-xs text-muted">Quebre o projeto em etapas e acompanhe o andamento.</p>
+          </div>
+          {canEdit && (
+            <details className="relative">
+              <summary className="inline-flex list-none cursor-pointer items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2 text-sm font-medium text-[#0f0f0f] hover:bg-primary-dark">
+                + Tarefa
+              </summary>
+              <Card className="absolute right-0 z-10 mt-2 w-[340px]">
+                <form action={createProjectTask} className="space-y-3">
+                  <input type="hidden" name="project_id" value={project.id} />
+                  <div>
+                    <Label>Título</Label>
+                    <Input name="title" required placeholder="Ex: Configurar ambiente" />
+                  </div>
+                  <div>
+                    <Label>Status</Label>
+                    <Select name="status" defaultValue="todo">
+                      {TASK_COLUMNS.map((c) => (
+                        <option key={c.status} value={c.status}>
+                          {c.label}
+                        </option>
+                      ))}
+                    </Select>
+                  </div>
+                  <div>
+                    <Label>Responsável (opcional)</Label>
+                    <Select name="assigned_to" defaultValue="">
+                      <option value="">— nenhum —</option>
+                      {(activeEmployees ?? []).map((e) => (
+                        <option key={e.id} value={e.id}>
+                          {e.full_name}
+                        </option>
+                      ))}
+                    </Select>
+                  </div>
+                  <div>
+                    <Label>Prazo</Label>
+                    <Input name="due_date" type="date" />
+                  </div>
+                  <div>
+                    <Label>Descrição</Label>
+                    <Textarea name="description" rows={2} />
+                  </div>
+                  <Button type="submit" className="w-full">
+                    Salvar tarefa
+                  </Button>
+                </form>
+              </Card>
+            </details>
+          )}
+        </div>
+
+        {taskList.length === 0 ? (
+          <EmptyState>Nenhuma tarefa cadastrada ainda.</EmptyState>
+        ) : (
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+            {TASK_COLUMNS.map((col) => {
+              const colTasks = taskList.filter((t) => t.status === col.status);
+              return (
+                <div key={col.status} className="rounded-xl border border-border bg-surface2/40 p-3">
+                  <div className="mb-3 flex items-center justify-between">
+                    <h3 className="text-xs font-semibold uppercase tracking-wide text-muted">{col.label}</h3>
+                    <Badge>{colTasks.length}</Badge>
+                  </div>
+                  <div className="space-y-2">
+                    {colTasks.map((t) => (
+                      <div key={t.id} className="rounded-lg border border-border bg-surface p-3 text-sm">
+                        <div className="font-medium text-ink">{t.title}</div>
+                        {t.description && <p className="mt-1 text-xs text-muted">{t.description}</p>}
+                        <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted">
+                          {t.employees?.full_name && <span>{t.employees.full_name}</span>}
+                          {t.due_date && <span>· {formatDate(t.due_date)}</span>}
+                        </div>
+                        {canEdit && (
+                          <div className="mt-3 flex flex-wrap items-center gap-2">
+                            <form action={updateProjectTaskStatus} className="flex items-center gap-1">
+                              <input type="hidden" name="id" value={t.id} />
+                              <input type="hidden" name="project_id" value={project.id} />
+                              <Select name="status" defaultValue={t.status} className="!w-auto text-xs">
+                                {TASK_COLUMNS.map((c) => (
+                                  <option key={c.status} value={c.status}>
+                                    {c.label}
+                                  </option>
+                                ))}
+                              </Select>
+                              <Button variant="ghost" type="submit" className="px-2 py-1 text-xs">
+                                Mover
+                              </Button>
+                            </form>
+                            <details className="relative">
+                              <summary className="inline-flex list-none cursor-pointer items-center justify-center rounded-lg border border-border px-2 py-1 text-xs font-medium text-ink hover:bg-surface2">
+                                Editar
+                              </summary>
+                              <Card className="absolute right-0 z-10 mt-2 w-[320px]">
+                                <form action={updateProjectTask} className="space-y-3">
+                                  <input type="hidden" name="id" value={t.id} />
+                                  <input type="hidden" name="project_id" value={project.id} />
+                                  <div>
+                                    <Label>Título</Label>
+                                    <Input name="title" required defaultValue={t.title} />
+                                  </div>
+                                  <div>
+                                    <Label>Status</Label>
+                                    <Select name="status" defaultValue={t.status}>
+                                      {TASK_COLUMNS.map((c) => (
+                                        <option key={c.status} value={c.status}>
+                                          {c.label}
+                                        </option>
+                                      ))}
+                                    </Select>
+                                  </div>
+                                  <div>
+                                    <Label>Responsável</Label>
+                                    <Select name="assigned_to" defaultValue={t.assigned_to ?? ""}>
+                                      <option value="">— nenhum —</option>
+                                      {(activeEmployees ?? []).map((e) => (
+                                        <option key={e.id} value={e.id}>
+                                          {e.full_name}
+                                        </option>
+                                      ))}
+                                    </Select>
+                                  </div>
+                                  <div>
+                                    <Label>Prazo</Label>
+                                    <Input name="due_date" type="date" defaultValue={t.due_date ?? ""} />
+                                  </div>
+                                  <div>
+                                    <Label>Descrição</Label>
+                                    <Textarea name="description" rows={2} defaultValue={t.description ?? ""} />
+                                  </div>
+                                  <Button type="submit" className="w-full">
+                                    Salvar alterações
+                                  </Button>
+                                </form>
+                              </Card>
+                            </details>
+                            <form action={deleteProjectTask}>
+                              <input type="hidden" name="id" value={t.id} />
+                              <input type="hidden" name="project_id" value={project.id} />
+                              <Button variant="danger" type="submit" className="px-2 py-1 text-xs">
+                                Excluir
+                              </Button>
+                            </form>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </Card>
 
       {canViewFinanceiro && (
         <Card className="mb-6">

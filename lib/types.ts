@@ -76,6 +76,10 @@ export type Client = {
   email: string | null;
   phone: string | null;
   notes: string | null;
+  cnpj: string | null;
+  razao_social: string | null;
+  inscricao_estadual: string | null;
+  endereco: string | null;
 };
 
 export type ProjectStatus = "prospeccao" | "em_andamento" | "pausado" | "concluido" | "cancelado";
@@ -183,4 +187,56 @@ export type EmployeeHistoryEntry = {
   old_value: string | null;
   new_value: string | null;
   changed_at: string;
+};
+
+export type ProjectTaskStatus = "todo" | "doing" | "done";
+
+export type ProjectTask = {
+  id: string;
+  project_id: string;
+  title: string;
+  description: string | null;
+  status: ProjectTaskStatus;
+  assigned_to: string | null;
+  due_date: string | null;
+  position: number;
+  created_at: string;
+  employees?: { full_name: string } | null;
+};
+
+export type EmployeeSensitiveData = {
+  employee_id: string;
+  cpf: string | null;
+  rg: string | null;
+  pix_key: string | null;
+  bank_name: string | null;
+  bank_agency: string | null;
+  bank_account: string | null;
+  updated_at: string;
+};
+
+export type EmployeeDocumentCategory = "contrato" | "documento_pessoal" | "comprovante_endereco" | "outro";
+
+export type EmployeeDocument = {
+  id: string;
+  employee_id: string;
+  file_name: string;
+  storage_path: string;
+  file_size: number | null;
+  content_type: string | null;
+  category: EmployeeDocumentCategory;
+  created_at: string;
+};
+
+export type AuditAction = "insert" | "update" | "delete";
+
+export type AuditLogEntry = {
+  id: string;
+  table_name: string;
+  record_id: string | null;
+  action: AuditAction;
+  changed_by: string | null;
+  changed_at: string;
+  old_data: Record<string, any> | null;
+  new_data: Record<string, any> | null;
 };

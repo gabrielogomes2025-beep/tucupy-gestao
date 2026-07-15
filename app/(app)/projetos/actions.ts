@@ -12,7 +12,34 @@ export async function createClientRecord(formData: FormData) {
     email: String(formData.get("email") || "") || null,
     phone: String(formData.get("phone") || "") || null,
     notes: String(formData.get("notes") || "") || null,
+    cnpj: String(formData.get("cnpj") || "") || null,
+    razao_social: String(formData.get("razao_social") || "") || null,
+    inscricao_estadual: String(formData.get("inscricao_estadual") || "") || null,
+    endereco: String(formData.get("endereco") || "") || null,
   });
+  if (error) throw new Error(error.message);
+  revalidatePath("/projetos");
+}
+
+export async function updateClientRecord(formData: FormData) {
+  const { supabase, can } = await getAccessContext();
+  if (!can("projetos", "edit")) throw new Error("Sem permissão de edição em Projetos.");
+
+  const id = String(formData.get("id"));
+
+  const { error } = await supabase
+    .from("clients")
+    .update({
+      name: String(formData.get("name") || ""),
+      email: String(formData.get("email") || "") || null,
+      phone: String(formData.get("phone") || "") || null,
+      notes: String(formData.get("notes") || "") || null,
+      cnpj: String(formData.get("cnpj") || "") || null,
+      razao_social: String(formData.get("razao_social") || "") || null,
+      inscricao_estadual: String(formData.get("inscricao_estadual") || "") || null,
+      endereco: String(formData.get("endereco") || "") || null,
+    })
+    .eq("id", id);
   if (error) throw new Error(error.message);
   revalidatePath("/projetos");
 }
@@ -189,6 +216,71 @@ export async function deleteBudgetCategory(formData: FormData) {
   const id = String(formData.get("id"));
   const projectId = String(formData.get("project_id"));
   const { error } = await supabase.from("project_budget_categories").delete().eq("id", id);
+  if (error) throw new Error(error.message);
+  revalidatePath(`/projetos/${projectId}`);
+}
+
+export async function createProjectTask(formData: FormData) {
+  const { supabase, can, user } = await getAccessContext();
+  if (!can("projetos", "edit")) throw new Error("Sem permissão de edição em Projetos.");
+
+  const projectId = String(formData.get("project_id") || "");
+  const assignedTo = String(formData.get("assigned_to") || "");
+
+  const { error } = await supabase.from("project_tasks").insert({
+    project_id: projectId,
+    title: String(formData.get("title") || ""),
+    description: String(formData.get("description") || "") || null,
+    status: String(formData.get("status") || "todo"),
+    assigned_to: assignedTo || null,
+    due_date: String(formData.get("due_date") || "") || null,
+    created_by: user.id,
+  });
+  if (error) throw new Error(error.message);
+  revalidatePath(`/projetos/${projectId}`);
+}
+
+export async function updateProjectTaskStatus(formData: FormData) {
+  const { supabase, can } = await getAccessContext();
+  if (!can("projetos", "edit")) throw new Error("Sem permissão de edição em Projetos.");
+
+  const id = String(formData.get("id"));
+  const projectId = String(formData.get("project_id"));
+  const status = String(formData.get("status"));
+  const { error } = await supabase.from("project_tasks").update({ status }).eq("id", id);
+  if (error) throw new Error(error.message);
+  revalidatePath(`/projetos/${projectId}`);
+}
+
+export async function updateProjectTask(formData: FormData) {
+  const { supabase, can } = await getAccessContext();
+  if (!can("projetos", "edit")) throw new Error("Sem permissão de edição em Projetos.");
+
+  const id = String(formData.get("id"));
+  const projectId = String(formData.get("project_id"));
+  const assignedTo = String(formData.get("assigned_to") || "");
+
+  const { error } = await supabase
+    .from("project_tasks")
+    .update({
+      title: String(formData.get("title") || ""),
+      description: String(formData.get("description") || "") || null,
+      status: String(formData.get("status") || "todo"),
+      assigned_to: assignedTo || null,
+      due_date: String(formData.get("due_date") || "") || null,
+    })
+    .eq("id", id);
+  if (error) throw new Error(error.message);
+  revalidatePath(`/projetos/${projectId}`);
+}
+
+export async function deleteProjectTask(formData: FormData) {
+  const { supabase, can } = await getAccessContext();
+  if (!can("projetos", "edit")) throw new Error("Sem permissão de edição em Projetos.");
+
+  const id = String(formData.get("id"));
+  const projectId = String(formData.get("project_id"));
+  const { error } = await supabase.from("project_tasks").delete().eq("id", id);
   if (error) throw new Error(error.message);
   revalidatePath(`/projetos/${projectId}`);
 }

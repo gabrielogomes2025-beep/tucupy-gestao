@@ -4,18 +4,19 @@ import { signOut } from "@/app/login/actions";
 import { Button, TucupyMark } from "@/components/ui";
 import type { Module } from "@/lib/types";
 
-const NAV: { href: string; label: string; icon: string; module: Module | null }[] = [
+const NAV: { href: string; label: string; icon: string; module: Module | null; requireEdit?: boolean }[] = [
   { href: "/dashboard", label: "Dashboard", icon: "◈", module: null },
   { href: "/financeiro", label: "Financeiro", icon: "$", module: "financeiro" },
   { href: "/rh", label: "RH", icon: "◐", module: "rh" },
   { href: "/projetos", label: "Projetos", icon: "▣", module: "projetos" },
   { href: "/permissoes", label: "Equipe & Acessos", icon: "◆", module: "permissoes" },
+  { href: "/auditoria", label: "Auditoria", icon: "☰", module: "permissoes", requireEdit: true },
 ];
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const { profile, can, isSuperAdmin } = await getAccessContext();
 
-  const items = NAV.filter((item) => !item.module || can(item.module, "view"));
+  const items = NAV.filter((item) => !item.module || can(item.module, item.requireEdit ? "edit" : "view"));
 
   return (
     <div className="flex min-h-screen">
