@@ -16,6 +16,13 @@ export type Permission = {
   access_level: AccessLevel;
 };
 
+export type TerminationReason =
+  | "pedido_demissao"
+  | "demissao_sem_justa_causa"
+  | "demissao_justa_causa"
+  | "termino_contrato"
+  | "outro";
+
 export type Employee = {
   id: string;
   full_name: string;
@@ -27,6 +34,8 @@ export type Employee = {
   hourly_cost: number;
   phone: string | null;
   active: boolean;
+  termination_date: string | null;
+  termination_reason: TerminationReason | null;
   created_at: string;
 };
 
@@ -152,4 +161,26 @@ export type Invite = {
   used_at: string | null;
   expires_at: string;
   created_at: string;
+};
+
+export type RecurringTransaction = {
+  id: string;
+  type: TransactionType;
+  category: string;
+  amount: number;
+  description: string | null;
+  project_id: string | null;
+  day_of_month: number;
+  active: boolean;
+  created_at: string;
+  projects?: { name: string } | null;
+};
+
+export type EmployeeHistoryEntry = {
+  id: string;
+  employee_id: string;
+  field: "role" | "monthly_salary" | "department";
+  old_value: string | null;
+  new_value: string | null;
+  changed_at: string;
 };

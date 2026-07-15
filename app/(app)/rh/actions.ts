@@ -48,13 +48,32 @@ export async function updateEmployee(formData: FormData) {
   revalidatePath("/dashboard");
 }
 
-export async function toggleEmployeeActive(formData: FormData) {
+export async function terminateEmployee(formData: FormData) {
   const { supabase, can } = await getAccessContext();
   if (!can("rh", "edit")) throw new Error("Sem permissão de edição em RH.");
 
   const id = String(formData.get("id"));
-  const active = formData.get("active") === "true";
-  const { error } = await supabase.from("employees").update({ active: !active }).eq("id", id);
+  const termination_date = String(formData.get("termination_date") || "") || new Date().toISOString().slice(0, 10);
+  const termination_reason = String(formData.get("termination_reason") || "outro");
+
+  const { error } = await supabase
+    .from("employees")
+    .update({ active: false, termination_date, termination_reason })
+    .eq("id", id);
+  if (error) throw new Error(error.message);
+  revalidatePath("/rh");
+  revalidatePath("/dashboard");
+}
+
+export async function reactivateEmployee(formData: FormData) {
+  const { supabase, can } = await getAccessContext();
+  if (!can("rh", "edit")) throw new Error("Sem permissão de edição em RH.");
+
+  const id = String(formData.get("id"));
+  const { error } = await supabase
+    .from("employees")
+    .update({ active: true, termination_date: null, termination_reason: null })
+    .eq("id", id);
   if (error) throw new Error(error.message);
   revalidatePath("/rh");
   revalidatePath("/dashboard");

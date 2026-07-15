@@ -125,3 +125,45 @@ export async function deleteTransactionFile(formData: FormData) {
 
   revalidatePath("/financeiro");
 }
+
+export async function createRecurringTransaction(formData: FormData) {
+  const { supabase, can, user } = await getAccessContext();
+  if (!can("financeiro", "edit")) throw new Error("Sem permissão de edição em Financeiro.");
+
+  const projectId = String(formData.get("project_id") || "");
+  const dayOfMonth = Math.min(28, Math.max(1, Number(formData.get("day_of_month") || 1)));
+
+  const { error } = await supabase.from("recurring_transactions").insert({
+    type: String(formData.get("type") || "despesa"),
+    category: String(formData.get("category") || "Outro"),
+    amount: Number(formData.get("amount") || 0),
+    description: String(formData.get("description") || "") || null,
+    project_id: projectId || null,
+    day_of_month: dayOfMonth,
+    created_by: user.id,
+  });
+
+  if (error) throw new Error(error.message);
+  revalidatePath("/financeiro");
+}
+
+export async function toggleRecurringTransaction(formData: FormData) {
+  const { supabase, can } = await getAccessContext();
+  if (!can("financeiro", "edit")) throw new Error("Sem permissão de edição em Financeiro.");
+
+  const id = String(formData.get("id"));
+  const active = formData.get("active") === "true";
+  const { error } = await supabase.from("recurring_transactions").update({ active: !active }).eq("id", id);
+  if (error) throw new Error(error.message);
+  revalidatePath("/financeiro");
+}
+
+export async function deleteRecurringTransaction(formData: FormData) {
+  const { supabase, can } = await getAccessContext();
+  if (!can("financeiro", "edit")) throw new Error("Sem permissão de edição em Financeiro.");
+
+  const id = String(formData.get("id"));
+  const { error } = await supabase.from("recurring_transactions").delete().eq("id", id);
+  if (error) throw new Error(error.message);
+  revalidatePath("/financeiro");
+}

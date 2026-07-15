@@ -1,7 +1,7 @@
 import { getAccessContext } from "@/lib/access";
 import { Card, PageHeader, Badge, Button, Input, Label, Select, Textarea, EmptyState, Kpi } from "@/components/ui";
 import { formatCurrency, formatDate, formatFileSize } from "@/lib/format";
-import type { Project, Transaction, TransactionFile } from "@/lib/types";
+import type { Project, RecurringTransaction, Transaction, TransactionFile } from "@/lib/types";
 import {
   createTransaction,
   updateTransaction,
@@ -9,8 +9,14 @@ import {
   deleteTransaction,
   uploadTransactionFile,
   deleteTransactionFile,
+  createRecurringTransaction,
+  toggleRecurringTransaction,
+  deleteRecurringTransaction,
 } from "./actions";
 import { redirect } from "next/navigation";
+import Link from "next/link";
+
+const DAY_OPTIONS = Array.from({ length: 28 }, (_, i) => i + 1);
 
 const CATEGORIES = [
   "Serviços prestados",
@@ -29,7 +35,9 @@ export default async function FinanceiroPage() {
   if (!can("financeiro", "view")) redirect("/dashboard");
   const canEdit = can("financeiro", "edit");
 
-  const [{ data: transactions }, { data: projects }] = await Promise.all([
+  await supabase.rpc("generate_due_recurring_transactions");
+
+  const [{ data: transactions }, { data: projects }, { data: allTimeAmounts }, { data: recurring }] = await Promise.all([
     supabase
       .from("transactions")
       .select("*, projects(name)")
@@ -37,9 +45,21 @@ export default async function FinanceiroPage() {
       .limit(100)
       .returns<Transaction[]>(),
     supabase.from("projects").select("id, name").order("name").returns<Pick<Project, "id" | "name">[]>(),
+    supabase.from("transactions").select("type, status, amount"),
+    supabase
+      .from("recurring_transactions")
+      .select("*, projects(name)")
+      .order("created_at", { ascending: false })
+      .returns<RecurringTransaction[]>(),
   ]);
 
   const list = transactions ?? [];
+  const recurringList = recurring ?? [];
+
+  const saldoAcumulado = (allTimeAmounts ?? []).reduce((s, t: any) => {
+    if (t.status !== "realizado") return s;
+    return s + Number(t.amount) * (t.type === "despesa" ? -1 : 1);
+  }, 0);
 
   const { data: txFiles } = list.length
     ? await supabase
@@ -76,6 +96,12 @@ export default async function FinanceiroPage() {
         description="Contas a pagar/receber e fluxo de caixa"
         action={
           <div className="flex items-center gap-2">
+            <Link
+              href="/financeiro/relatorio"
+              className="inline-flex items-center justify-center gap-2 rounded-xl border border-border px-4 py-2 text-sm font-medium text-ink hover:bg-surface2"
+            >
+              Relatório
+            </Link>
             <a
               href="/financeiro/export"
               className="inline-flex items-center justify-center gap-2 rounded-xl border border-border px-4 py-2 text-sm font-medium text-ink hover:bg-surface2"
@@ -149,10 +175,11 @@ export default async function FinanceiroPage() {
         }
       />
 
-      <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-3">
+      <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <Kpi label="Receitas realizadas" value={formatCurrency(receitas)} tone="good" />
         <Kpi label="Despesas realizadas" value={formatCurrency(despesas)} tone="bad" />
-        <Kpi label="Saldo" value={formatCurrency(receitas - despesas)} tone={receitas - despesas >= 0 ? "good" : "bad"} />
+        <Kpi label="Saldo (últimos lançamentos)" value={formatCurrency(receitas - despesas)} tone={receitas - despesas >= 0 ? "good" : "bad"} />
+        <Kpi label="Saldo de caixa acumulado" value={formatCurrency(saldoAcumulado)} tone={saldoAcumulado >= 0 ? "good" : "bad"} />
       </div>
 
       <p className="mb-6 text-xs text-muted">
@@ -232,6 +259,120 @@ export default async function FinanceiroPage() {
           )}
         </Card>
       </div>
+
+      <Card className="mb-6">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="text-sm font-semibold text-ink">Lançamentos recorrentes ({recurringList.length})</h2>
+            <p className="mt-1 text-xs text-muted">
+              Gerados automaticamente todo mês, no dia definido, quando alguém abre esta página.
+            </p>
+          </div>
+          {canEdit && (
+            <details className="relative">
+              <summary className="inline-flex list-none cursor-pointer items-center justify-center gap-2 rounded-xl border border-border px-4 py-2 text-sm font-medium text-ink hover:bg-surface2">
+                + Recorrente
+              </summary>
+              <Card className="absolute right-0 z-10 mt-2 w-[360px]">
+                <form action={createRecurringTransaction} className="space-y-3">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <Label>Tipo</Label>
+                      <Select name="type" defaultValue="despesa">
+                        <option value="receita">Receita</option>
+                        <option value="despesa">Despesa</option>
+                      </Select>
+                    </div>
+                    <div>
+                      <Label>Dia do mês</Label>
+                      <Select name="day_of_month" defaultValue="5">
+                        {DAY_OPTIONS.map((d) => (
+                          <option key={d} value={d}>
+                            {d}
+                          </option>
+                        ))}
+                      </Select>
+                    </div>
+                  </div>
+                  <div>
+                    <Label>Categoria</Label>
+                    <Select name="category" defaultValue="Outro">
+                      {CATEGORIES.map((c) => (
+                        <option key={c} value={c}>
+                          {c}
+                        </option>
+                      ))}
+                    </Select>
+                  </div>
+                  <div>
+                    <Label>Valor (R$)</Label>
+                    <Input name="amount" type="number" step="0.01" min="0" required placeholder="0,00" />
+                  </div>
+                  <div>
+                    <Label>Projeto (opcional)</Label>
+                    <Select name="project_id" defaultValue="">
+                      <option value="">— nenhum —</option>
+                      {(projects ?? []).map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.name}
+                        </option>
+                      ))}
+                    </Select>
+                  </div>
+                  <div>
+                    <Label>Descrição</Label>
+                    <Textarea name="description" rows={2} placeholder="Ex: Aluguel do escritório" />
+                  </div>
+                  <Button type="submit" className="w-full">
+                    Salvar recorrente
+                  </Button>
+                </form>
+              </Card>
+            </details>
+          )}
+        </div>
+
+        {recurringList.length === 0 ? (
+          <EmptyState>Nenhum lançamento recorrente cadastrado.</EmptyState>
+        ) : (
+          <ul className="space-y-2">
+            {recurringList.map((r) => (
+              <li key={r.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border px-3 py-2 text-sm">
+                <div className="min-w-0">
+                  <div className="font-medium">
+                    {r.category} {r.projects?.name ? `· ${r.projects.name}` : ""}
+                  </div>
+                  <div className="text-xs text-muted">
+                    Todo dia {r.day_of_month} {r.description ? `· ${r.description}` : ""}
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Badge tone={r.type === "receita" ? "good" : "bad"}>{r.type}</Badge>
+                  <span className={`font-medium ${r.type === "receita" ? "text-primary" : "text-danger"}`}>{formatCurrency(r.amount)}</span>
+                  <Badge tone={r.active ? "good" : "default"}>{r.active ? "ativo" : "pausado"}</Badge>
+                  {canEdit && (
+                    <>
+                      <form action={toggleRecurringTransaction}>
+                        <input type="hidden" name="id" value={r.id} />
+                        <input type="hidden" name="active" value={String(r.active)} />
+                        <Button variant="ghost" className="px-2 py-1 text-xs" type="submit">
+                          {r.active ? "Pausar" : "Ativar"}
+                        </Button>
+                      </form>
+                      <form action={deleteRecurringTransaction}>
+                        <input type="hidden" name="id" value={r.id} />
+                        <Button variant="danger" className="px-2 py-1 text-xs" type="submit">
+                          Excluir
+                        </Button>
+                      </form>
+                    </>
+                  )}
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </Card>
 
       <Card>
         <h2 className="mb-3 text-sm font-semibold text-ink">Lançamentos ({list.length})</h2>
