@@ -3,6 +3,18 @@ import { Card, Kpi, PageHeader, Badge, EmptyState } from "@/components/ui";
 import { formatCurrency, formatDate, currentMonthISO } from "@/lib/format";
 import type { Transaction, LeaveRequest, Project } from "@/lib/types";
 
+function monthsAgoISO(months: number) {
+  const now = new Date();
+  const d = new Date(now.getFullYear(), now.getMonth() - months, 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`;
+}
+
+function monthShortLabel(key: string) {
+  const [y, m] = key.split("-").map(Number);
+  const d = new Date(y, (m || 1) - 1, 1);
+  return d.toLocaleDateString("pt-BR", { month: "short" });
+}
+
 export default async function DashboardPage() {
   const { supabase, can, profile } = await getAccessContext();
 
@@ -11,7 +23,7 @@ export default async function DashboardPage() {
   const seeRh = can("rh", "view");
   const seeProjetos = can("projetos", "view");
 
-  const [txRes, employeesRes, leaveRes, projectsRes, payrollRes] = await Promise.all([
+  const [txRes, employeesRes, leaveRes, projectsRes, payrollRes, chartRes] = await Promise.all([
     seeFinanceiro
       ? supabase
           .from("transactions")
@@ -35,6 +47,9 @@ export default async function DashboardPage() {
           .returns<Project[]>()
       : Promise.resolve({ data: [] as Project[] }),
     seeRh ? supabase.from("payroll_entries").select("net_amount, status").eq("ref_month", monthStart) : Promise.resolve({ data: [] }),
+    seeFinanceiro
+      ? supabase.from("transactions").select("type, status, amount, due_date").eq("status", "realizado").gte("due_date", monthsAgoISO(5))
+      : Promise.resolve({ data: [] as any[] }),
   ]);
 
   const transactions = txRes.data ?? [];
@@ -47,6 +62,18 @@ export default async function DashboardPage() {
   const feriasPendentes = leaveRes.data ?? [];
   const projetosAtivos = projectsRes.data ?? [];
   const folhaTotal = (payrollRes.data ?? []).reduce((s: number, p: any) => s + Number(p.net_amount ?? 0), 0);
+
+  const chartMonths = Array.from({ length: 6 }, (_, i) => monthsAgoISO(5 - i).slice(0, 7));
+  const chartMap = new Map(chartMonths.map((m) => [m, { receita: 0, despesa: 0 }]));
+  for (const t of (chartRes.data ?? []) as any[]) {
+    const key = (t.due_date ?? "").slice(0, 7);
+    const entry = chartMap.get(key);
+    if (!entry) continue;
+    if (t.type === "receita") entry.receita += Number(t.amount);
+    else entry.despesa += Number(t.amount);
+  }
+  const chartData = chartMonths.map((m) => ({ month: m, ...chartMap.get(m)! }));
+  const chartMax = Math.max(1, ...chartData.flatMap((d) => [d.receita, d.despesa]));
 
   return (
     <div>
@@ -73,6 +100,39 @@ export default async function DashboardPage() {
         )}
         {seeProjetos && <Kpi label="Projetos em andamento" value={projetosAtivos.length} />}
       </div>
+
+      {seeFinanceiro && (
+        <Card className="mt-6">
+          <h2 className="mb-4 text-sm font-semibold text-ink">Receitas x despesas (últimos 6 meses)</h2>
+          <div className="flex items-end gap-3 sm:gap-4" style={{ height: 160 }}>
+            {chartData.map((d) => (
+              <div key={d.month} className="flex flex-1 flex-col items-center gap-1">
+                <div className="flex h-[120px] w-full items-end justify-center gap-1">
+                  <div
+                    className="w-1/3 rounded-t bg-success"
+                    style={{ height: `${Math.max(2, (d.receita / chartMax) * 100)}%` }}
+                    title={`Receita: ${formatCurrency(d.receita)}`}
+                  />
+                  <div
+                    className="w-1/3 rounded-t bg-danger"
+                    style={{ height: `${Math.max(2, (d.despesa / chartMax) * 100)}%` }}
+                    title={`Despesa: ${formatCurrency(d.despesa)}`}
+                  />
+                </div>
+                <span className="text-xs capitalize text-muted">{monthShortLabel(d.month)}</span>
+              </div>
+            ))}
+          </div>
+          <div className="mt-3 flex items-center gap-4 text-xs text-muted">
+            <span className="flex items-center gap-1">
+              <span className="h-2 w-2 rounded-full bg-success" /> Receita
+            </span>
+            <span className="flex items-center gap-1">
+              <span className="h-2 w-2 rounded-full bg-danger" /> Despesa
+            </span>
+          </div>
+        </Card>
+      )}
 
       <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-2">
         {seeRh && (

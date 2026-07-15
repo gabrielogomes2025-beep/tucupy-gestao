@@ -12,6 +12,9 @@ import {
   deleteEmployeeDocument,
 } from "./actions";
 import { redirect } from "next/navigation";
+import Link from "next/link";
+
+const PAGE_SIZE = 20;
 
 const TERMINATION_REASON_LABEL: Record<string, string> = {
   pedido_demissao: "Pedido de demissão",
@@ -34,19 +37,52 @@ const DOC_CATEGORY_LABEL: Record<string, string> = {
   outro: "Outro",
 };
 
-export default async function RhPage() {
+export default async function RhPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ q?: string; status?: string; page?: string }>;
+}) {
   const { supabase, can } = await getAccessContext();
   if (!can("rh", "view")) redirect("/dashboard");
   const canEdit = can("rh", "edit");
 
-  const { data: employees } = await supabase
+  const params = await searchParams;
+  const q = (params.q || "").trim();
+  const statusFiltro = params.status || "";
+  const page = Math.max(1, Number(params.page) || 1);
+  const from = (page - 1) * PAGE_SIZE;
+  const to = from + PAGE_SIZE - 1;
+
+  function buildQuery(overrides: Record<string, string | number | undefined>) {
+    const merged: Record<string, string | number | undefined> = { q, status: statusFiltro, page, ...overrides };
+    const sp = new URLSearchParams();
+    Object.entries(merged).forEach(([k, v]) => {
+      if (v !== undefined && v !== "" && v !== null) sp.set(k, String(v));
+    });
+    const qs = sp.toString();
+    return qs ? `/rh?${qs}` : "/rh";
+  }
+
+  let empQuery = supabase
     .from("employees")
-    .select("*")
+    .select("*", { count: "exact" })
     .order("active", { ascending: false })
-    .order("full_name")
-    .returns<Employee[]>();
+    .order("full_name");
+  if (q) empQuery = empQuery.or(`full_name.ilike.%${q}%,role.ilike.%${q}%,department.ilike.%${q}%`);
+  if (statusFiltro === "ativo") empQuery = empQuery.eq("active", true);
+  if (statusFiltro === "inativo") empQuery = empQuery.eq("active", false);
+  empQuery = empQuery.range(from, to);
+
+  const [{ data: employees, count: empCount }, { data: allStats }] = await Promise.all([
+    empQuery.returns<Employee[]>(),
+    supabase.from("employees").select("active"),
+  ]);
 
   const list = employees ?? [];
+  const totalCount = empCount ?? 0;
+  const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
+  const ativosTotal = (allStats ?? []).filter((e: any) => e.active).length;
+  const totalGeral = (allStats ?? []).length;
 
   const { data: history } = list.length
     ? await supabase
@@ -101,7 +137,7 @@ export default async function RhPage() {
     <div>
       <PageHeader
         title="Colaboradores"
-        description={`${list.filter((e) => e.active).length} ativos · ${list.length} no total`}
+        description={`${ativosTotal} ativos · ${totalGeral} no total`}
         action={
           canEdit ? (
             <details className="relative">
@@ -159,8 +195,26 @@ export default async function RhPage() {
       />
 
       <Card>
+        <form method="get" className="mb-4 flex flex-wrap items-end gap-2">
+          <div>
+            <Label>Buscar</Label>
+            <Input name="q" defaultValue={q} placeholder="nome, cargo ou departamento" />
+          </div>
+          <div>
+            <Label>Status</Label>
+            <Select name="status" defaultValue={statusFiltro} className="!w-auto">
+              <option value="">Todos</option>
+              <option value="ativo">Ativo</option>
+              <option value="inativo">Inativo</option>
+            </Select>
+          </div>
+          <Button variant="ghost" type="submit">
+            Filtrar
+          </Button>
+        </form>
+
         {list.length === 0 ? (
-          <EmptyState>Nenhum colaborador cadastrado ainda.</EmptyState>
+          <EmptyState>Nenhum colaborador encontrado para esse filtro.</EmptyState>
         ) : (
           <div className="overflow-x-auto scrollbar-thin">
             <table className="w-full text-left text-sm">
@@ -408,6 +462,32 @@ export default async function RhPage() {
                 ))}
               </tbody>
             </table>
+          </div>
+        )}
+
+        {totalPages > 1 && (
+          <div className="mt-4 flex flex-wrap items-center justify-between gap-2 text-sm">
+            <span className="text-muted">
+              Página {page} de {totalPages} · {totalCount} colaboradores
+            </span>
+            <div className="flex gap-2">
+              {page > 1 && (
+                <Link
+                  href={buildQuery({ page: page - 1 })}
+                  className="inline-flex items-center justify-center rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-ink hover:bg-surface2"
+                >
+                  Anterior
+                </Link>
+              )}
+              {page < totalPages && (
+                <Link
+                  href={buildQuery({ page: page + 1 })}
+                  className="inline-flex items-center justify-center rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-ink hover:bg-surface2"
+                >
+                  Próxima
+                </Link>
+              )}
+            </div>
           </div>
         )}
       </Card>

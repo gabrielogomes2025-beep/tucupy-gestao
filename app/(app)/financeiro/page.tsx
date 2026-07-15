@@ -30,31 +30,78 @@ const CATEGORIES = [
   "Outro",
 ];
 
-export default async function FinanceiroPage() {
+const PAGE_SIZE = 20;
+
+function bucketizeDueDate(dueDate: string, startOfToday: Date): "30" | "60" | "90" | "later" {
+  const d = new Date(dueDate + "T00:00:00");
+  const diffDays = Math.ceil((d.getTime() - startOfToday.getTime()) / 86400000);
+  if (diffDays <= 30) return "30";
+  if (diffDays <= 60) return "60";
+  if (diffDays <= 90) return "90";
+  return "later";
+}
+
+export default async function FinanceiroPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ q?: string; tipo?: string; status?: string; page?: string }>;
+}) {
   const { supabase, can } = await getAccessContext();
   if (!can("financeiro", "view")) redirect("/dashboard");
   const canEdit = can("financeiro", "edit");
 
   await supabase.rpc("generate_due_recurring_transactions");
 
-  const [{ data: transactions }, { data: projects }, { data: allTimeAmounts }, { data: recurring }] = await Promise.all([
-    supabase
-      .from("transactions")
-      .select("*, projects(name)")
-      .order("due_date", { ascending: false })
-      .limit(100)
-      .returns<Transaction[]>(),
-    supabase.from("projects").select("id, name").order("name").returns<Pick<Project, "id" | "name">[]>(),
-    supabase.from("transactions").select("type, status, amount"),
-    supabase
-      .from("recurring_transactions")
-      .select("*, projects(name)")
-      .order("created_at", { ascending: false })
-      .returns<RecurringTransaction[]>(),
-  ]);
+  const params = await searchParams;
+  const q = (params.q || "").trim();
+  const tipoFiltro = params.tipo || "";
+  const statusFiltro = params.status || "";
+  const page = Math.max(1, Number(params.page) || 1);
+  const from = (page - 1) * PAGE_SIZE;
+  const to = from + PAGE_SIZE - 1;
+
+  function buildQuery(overrides: Record<string, string | number | undefined>) {
+    const merged: Record<string, string | number | undefined> = { q, tipo: tipoFiltro, status: statusFiltro, page, ...overrides };
+    const sp = new URLSearchParams();
+    Object.entries(merged).forEach(([k, v]) => {
+      if (v !== undefined && v !== "" && v !== null) sp.set(k, String(v));
+    });
+    const qs = sp.toString();
+    return qs ? `/financeiro?${qs}` : "/financeiro";
+  }
+
+  let txQuery = supabase
+    .from("transactions")
+    .select("*, projects(name)", { count: "exact" })
+    .order("due_date", { ascending: false });
+  if (q) txQuery = txQuery.or(`category.ilike.%${q}%,description.ilike.%${q}%`);
+  if (tipoFiltro) txQuery = txQuery.eq("type", tipoFiltro);
+  if (statusFiltro) txQuery = txQuery.eq("status", statusFiltro);
+  txQuery = txQuery.range(from, to);
+
+  const [{ data: transactions, count: txCount }, { data: projects }, { data: allTimeAmounts }, { data: recurring }, { data: previstoAll }] =
+    await Promise.all([
+      txQuery.returns<Transaction[]>(),
+      supabase.from("projects").select("id, name").order("name").returns<Pick<Project, "id" | "name">[]>(),
+      supabase.from("transactions").select("type, status, amount"),
+      supabase
+        .from("recurring_transactions")
+        .select("*, projects(name)")
+        .order("created_at", { ascending: false })
+        .returns<RecurringTransaction[]>(),
+      supabase
+        .from("transactions")
+        .select("*, projects(name)")
+        .eq("status", "previsto")
+        .order("due_date", { ascending: true })
+        .returns<Transaction[]>(),
+    ]);
 
   const list = transactions ?? [];
+  const totalCount = txCount ?? 0;
+  const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
   const recurringList = recurring ?? [];
+  const previstoList = previstoAll ?? [];
 
   const saldoAcumulado = (allTimeAmounts ?? []).reduce((s, t: any) => {
     if (t.status !== "realizado") return s;
@@ -80,14 +127,36 @@ export default async function FinanceiroPage() {
     filesByTx.set(f.transaction_id, [...(filesByTx.get(f.transaction_id) ?? []), entry]);
   }
 
-  const receitas = list.filter((t) => t.type === "receita" && t.status === "realizado").reduce((s, t) => s + Number(t.amount), 0);
-  const despesas = list.filter((t) => t.type === "despesa" && t.status === "realizado").reduce((s, t) => s + Number(t.amount), 0);
+  const receitas = (allTimeAmounts ?? []).filter((t: any) => t.type === "receita" && t.status === "realizado").reduce((s, t: any) => s + Number(t.amount), 0);
+  const despesas = (allTimeAmounts ?? []).filter((t: any) => t.type === "despesa" && t.status === "realizado").reduce((s, t: any) => s + Number(t.amount), 0);
 
   const byDueDateAsc = (a: Transaction, b: Transaction) => (a.due_date ?? "9999-99-99").localeCompare(b.due_date ?? "9999-99-99");
-  const pagamentosAgendados = list.filter((t) => t.type === "despesa" && t.status === "previsto").sort(byDueDateAsc);
-  const recebimentosAgendados = list.filter((t) => t.type === "receita" && t.status === "previsto").sort(byDueDateAsc);
+  const pagamentosAgendados = previstoList.filter((t) => t.type === "despesa").sort(byDueDateAsc);
+  const recebimentosAgendados = previstoList.filter((t) => t.type === "receita").sort(byDueDateAsc);
   const totalPagamentosAgendados = pagamentosAgendados.reduce((s, t) => s + Number(t.amount), 0);
   const totalRecebimentosAgendados = recebimentosAgendados.reduce((s, t) => s + Number(t.amount), 0);
+
+  const startOfToday = new Date();
+  startOfToday.setHours(0, 0, 0, 0);
+  const buckets = {
+    "30": { receita: 0, despesa: 0 },
+    "60": { receita: 0, despesa: 0 },
+    "90": { receita: 0, despesa: 0 },
+  };
+  for (const t of previstoList) {
+    if (!t.due_date) continue;
+    const b = bucketizeDueDate(t.due_date, startOfToday);
+    if (b === "later") continue;
+    buckets[b][t.type] += Number(t.amount);
+  }
+  const PROJECTION_ROWS: { key: "30" | "60" | "90"; label: string }[] = [
+    { key: "30", label: "Até 30 dias" },
+    { key: "60", label: "31–60 dias" },
+    { key: "90", label: "61–90 dias" },
+  ];
+  const saldoProjetado90 =
+    saldoAcumulado +
+    PROJECTION_ROWS.reduce((s, r) => s + (buckets[r.key].receita - buckets[r.key].despesa), 0);
 
   return (
     <div>
@@ -261,6 +330,41 @@ export default async function FinanceiroPage() {
       </div>
 
       <Card className="mb-6">
+        <h2 className="mb-1 text-sm font-semibold text-ink">Projeção de fluxo de caixa</h2>
+        <p className="mb-3 text-xs text-muted">Com base nos lançamentos previstos (inclui os já vencidos no primeiro período).</p>
+        <div className="overflow-x-auto scrollbar-thin">
+          <table className="w-full text-left text-sm">
+            <thead>
+              <tr className="border-b border-border text-xs uppercase text-muted">
+                <th className="py-2 pr-3">Período</th>
+                <th className="py-2 pr-3 text-right">Receitas previstas</th>
+                <th className="py-2 pr-3 text-right">Despesas previstas</th>
+                <th className="py-2 pr-3 text-right">Saldo do período</th>
+              </tr>
+            </thead>
+            <tbody>
+              {PROJECTION_ROWS.map((r) => {
+                const b = buckets[r.key];
+                const saldo = b.receita - b.despesa;
+                return (
+                  <tr key={r.key} className="border-b border-border/60">
+                    <td className="py-2 pr-3 font-medium">{r.label}</td>
+                    <td className="py-2 pr-3 text-right text-success">{formatCurrency(b.receita)}</td>
+                    <td className="py-2 pr-3 text-right text-danger">{formatCurrency(b.despesa)}</td>
+                    <td className={`py-2 pr-3 text-right font-medium ${saldo >= 0 ? "text-success" : "text-danger"}`}>{formatCurrency(saldo)}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+        <div className="mt-3 text-sm">
+          <span className="text-muted">Saldo projetado em 90 dias (caixa atual + previstos): </span>
+          <span className={`font-semibold ${saldoProjetado90 >= 0 ? "text-success" : "text-danger"}`}>{formatCurrency(saldoProjetado90)}</span>
+        </div>
+      </Card>
+
+      <Card className="mb-6">
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
           <div>
             <h2 className="text-sm font-semibold text-ink">Lançamentos recorrentes ({recurringList.length})</h2>
@@ -375,9 +479,36 @@ export default async function FinanceiroPage() {
       </Card>
 
       <Card>
-        <h2 className="mb-3 text-sm font-semibold text-ink">Lançamentos ({list.length})</h2>
+        <h2 className="mb-3 text-sm font-semibold text-ink">Lançamentos ({totalCount})</h2>
+
+        <form method="get" className="mb-4 flex flex-wrap items-end gap-2">
+          <div>
+            <Label>Buscar</Label>
+            <Input name="q" defaultValue={q} placeholder="categoria ou descrição" />
+          </div>
+          <div>
+            <Label>Tipo</Label>
+            <Select name="tipo" defaultValue={tipoFiltro} className="!w-auto">
+              <option value="">Todos</option>
+              <option value="receita">Receita</option>
+              <option value="despesa">Despesa</option>
+            </Select>
+          </div>
+          <div>
+            <Label>Status</Label>
+            <Select name="status" defaultValue={statusFiltro} className="!w-auto">
+              <option value="">Todos</option>
+              <option value="previsto">Previsto</option>
+              <option value="realizado">Realizado</option>
+            </Select>
+          </div>
+          <Button variant="ghost" type="submit">
+            Filtrar
+          </Button>
+        </form>
+
         {list.length === 0 ? (
-          <EmptyState>Nenhum lançamento cadastrado ainda.</EmptyState>
+          <EmptyState>Nenhum lançamento encontrado para esse filtro.</EmptyState>
         ) : (
           <div className="overflow-x-auto scrollbar-thin">
             <table className="w-full text-left text-sm">
@@ -544,6 +675,32 @@ export default async function FinanceiroPage() {
                 ))}
               </tbody>
             </table>
+          </div>
+        )}
+
+        {totalPages > 1 && (
+          <div className="mt-4 flex flex-wrap items-center justify-between gap-2 text-sm">
+            <span className="text-muted">
+              Página {page} de {totalPages} · {totalCount} lançamentos
+            </span>
+            <div className="flex gap-2">
+              {page > 1 && (
+                <Link
+                  href={buildQuery({ page: page - 1 })}
+                  className="inline-flex items-center justify-center rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-ink hover:bg-surface2"
+                >
+                  Anterior
+                </Link>
+              )}
+              {page < totalPages && (
+                <Link
+                  href={buildQuery({ page: page + 1 })}
+                  className="inline-flex items-center justify-center rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-ink hover:bg-surface2"
+                >
+                  Próxima
+                </Link>
+              )}
+            </div>
           </div>
         )}
       </Card>

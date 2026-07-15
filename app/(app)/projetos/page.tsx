@@ -14,25 +14,75 @@ const STATUS_LABEL: Record<string, string> = {
   cancelado: "Cancelado",
 };
 
-export default async function ProjetosPage() {
+const PAGE_SIZE = 20;
+
+export default async function ProjetosPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ pq?: string; pstatus?: string; ppage?: string; cq?: string; cpage?: string }>;
+}) {
   const { supabase, can } = await getAccessContext();
   if (!can("projetos", "view")) redirect("/dashboard");
   const canEdit = can("projetos", "edit");
 
-  const [{ data: projects }, { data: clients }] = await Promise.all([
-    supabase.from("projects").select("*, clients(name)").order("created_at", { ascending: false }).returns<Project[]>(),
-    supabase.from("clients").select("*").order("name").returns<Client[]>(),
-  ]);
+  const params = await searchParams;
+  const pq = (params.pq || "").trim();
+  const pstatus = params.pstatus || "";
+  const ppage = Math.max(1, Number(params.ppage) || 1);
+  const pFrom = (ppage - 1) * PAGE_SIZE;
+  const pTo = pFrom + PAGE_SIZE - 1;
+
+  const cq = (params.cq || "").trim();
+  const cpage = Math.max(1, Number(params.cpage) || 1);
+  const cFrom = (cpage - 1) * PAGE_SIZE;
+  const cTo = cFrom + PAGE_SIZE - 1;
+
+  function buildQuery(overrides: Record<string, string | number | undefined>) {
+    const merged: Record<string, string | number | undefined> = { pq, pstatus, ppage, cq, cpage, ...overrides };
+    const sp = new URLSearchParams();
+    Object.entries(merged).forEach(([k, v]) => {
+      if (v !== undefined && v !== "" && v !== null) sp.set(k, String(v));
+    });
+    const qs = sp.toString();
+    return qs ? `/projetos?${qs}` : "/projetos";
+  }
+
+  let projectsQuery = supabase
+    .from("projects")
+    .select("*, clients(name)", { count: "exact" })
+    .order("created_at", { ascending: false });
+  if (pq) projectsQuery = projectsQuery.ilike("name", `%${pq}%`);
+  if (pstatus) projectsQuery = projectsQuery.eq("status", pstatus);
+  projectsQuery = projectsQuery.range(pFrom, pTo);
+
+  let clientsQuery = supabase.from("clients").select("*", { count: "exact" }).order("name");
+  if (cq) clientsQuery = clientsQuery.or(`name.ilike.%${cq}%,cnpj.ilike.%${cq}%`);
+  clientsQuery = clientsQuery.range(cFrom, cTo);
+
+  const [{ data: projects, count: projectsCount }, { data: clients, count: clientsCount }, { data: allProjectsStats }, { data: allClientsForDropdown }] =
+    await Promise.all([
+      projectsQuery.returns<Project[]>(),
+      clientsQuery.returns<Client[]>(),
+      supabase.from("projects").select("status, budget_total"),
+      supabase.from("clients").select("id, name").order("name").returns<Pick<Client, "id" | "name">[]>(),
+    ]);
 
   const list = projects ?? [];
-  const ativos = list.filter((p) => p.status === "em_andamento");
-  const budgetAtivo = ativos.reduce((s, p) => s + Number(p.budget_total), 0);
+  const projectsTotalCount = projectsCount ?? 0;
+  const projectsTotalPages = Math.max(1, Math.ceil(projectsTotalCount / PAGE_SIZE));
+
+  const clientsList = clients ?? [];
+  const clientsTotalCount = clientsCount ?? 0;
+  const clientsTotalPages = Math.max(1, Math.ceil(clientsTotalCount / PAGE_SIZE));
+
+  const ativos = (allProjectsStats ?? []).filter((p: any) => p.status === "em_andamento");
+  const budgetAtivo = ativos.reduce((s, p: any) => s + Number(p.budget_total), 0);
 
   return (
     <div>
       <PageHeader
         title="Projetos"
-        description={`${ativos.length} em andamento · ${(clients ?? []).length} clientes`}
+        description={`${ativos.length} em andamento · ${(allClientsForDropdown ?? []).length} clientes`}
         action={
           canEdit ? (
             <div className="flex gap-2">
@@ -95,7 +145,7 @@ export default async function ProjetosPage() {
                       <Label>Cliente</Label>
                       <Select name="client_id" defaultValue="">
                         <option value="">— nenhum —</option>
-                        {(clients ?? []).map((c) => (
+                        {(allClientsForDropdown ?? []).map((c) => (
                           <option key={c.id} value={c.id}>
                             {c.name}
                           </option>
@@ -149,8 +199,32 @@ export default async function ProjetosPage() {
       </Card>
 
       <Card>
+        <h2 className="mb-3 text-sm font-semibold text-ink">Projetos ({projectsTotalCount})</h2>
+        <form method="get" className="mb-4 flex flex-wrap items-end gap-2">
+          <input type="hidden" name="cq" value={cq} />
+          <input type="hidden" name="cpage" value={cpage} />
+          <div>
+            <Label>Buscar</Label>
+            <Input name="pq" defaultValue={pq} placeholder="nome do projeto" />
+          </div>
+          <div>
+            <Label>Status</Label>
+            <Select name="pstatus" defaultValue={pstatus} className="!w-auto">
+              <option value="">Todos</option>
+              {Object.entries(STATUS_LABEL).map(([v, l]) => (
+                <option key={v} value={v}>
+                  {l}
+                </option>
+              ))}
+            </Select>
+          </div>
+          <Button variant="ghost" type="submit">
+            Filtrar
+          </Button>
+        </form>
+
         {list.length === 0 ? (
-          <EmptyState>Nenhum projeto cadastrado ainda.</EmptyState>
+          <EmptyState>Nenhum projeto encontrado para esse filtro.</EmptyState>
         ) : (
           <div className="overflow-x-auto scrollbar-thin">
             <table className="w-full text-left text-sm">
@@ -201,12 +275,51 @@ export default async function ProjetosPage() {
             </table>
           </div>
         )}
+
+        {projectsTotalPages > 1 && (
+          <div className="mt-4 flex flex-wrap items-center justify-between gap-2 text-sm">
+            <span className="text-muted">
+              Página {ppage} de {projectsTotalPages} · {projectsTotalCount} projetos
+            </span>
+            <div className="flex gap-2">
+              {ppage > 1 && (
+                <Link
+                  href={buildQuery({ ppage: ppage - 1 })}
+                  className="inline-flex items-center justify-center rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-ink hover:bg-surface2"
+                >
+                  Anterior
+                </Link>
+              )}
+              {ppage < projectsTotalPages && (
+                <Link
+                  href={buildQuery({ ppage: ppage + 1 })}
+                  className="inline-flex items-center justify-center rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-ink hover:bg-surface2"
+                >
+                  Próxima
+                </Link>
+              )}
+            </div>
+          </div>
+        )}
       </Card>
 
       <Card className="mt-6">
-        <h2 className="mb-3 text-sm font-semibold text-ink">Clientes ({(clients ?? []).length})</h2>
-        {(clients ?? []).length === 0 ? (
-          <EmptyState>Nenhum cliente cadastrado ainda.</EmptyState>
+        <h2 className="mb-3 text-sm font-semibold text-ink">Clientes ({clientsTotalCount})</h2>
+        <form method="get" className="mb-4 flex flex-wrap items-end gap-2">
+          <input type="hidden" name="pq" value={pq} />
+          <input type="hidden" name="pstatus" value={pstatus} />
+          <input type="hidden" name="ppage" value={ppage} />
+          <div>
+            <Label>Buscar</Label>
+            <Input name="cq" defaultValue={cq} placeholder="nome ou CNPJ" />
+          </div>
+          <Button variant="ghost" type="submit">
+            Filtrar
+          </Button>
+        </form>
+
+        {clientsList.length === 0 ? (
+          <EmptyState>Nenhum cliente encontrado para esse filtro.</EmptyState>
         ) : (
           <div className="overflow-x-auto scrollbar-thin">
             <table className="w-full text-left text-sm">
@@ -220,7 +333,7 @@ export default async function ProjetosPage() {
                 </tr>
               </thead>
               <tbody>
-                {(clients ?? []).map((c) => (
+                {clientsList.map((c) => (
                   <tr key={c.id} className="border-b border-border/60">
                     <td className="py-2 pr-3 font-medium">{c.name}</td>
                     <td className="py-2 pr-3 text-muted">{c.cnpj || "—"}</td>
@@ -283,6 +396,32 @@ export default async function ProjetosPage() {
                 ))}
               </tbody>
             </table>
+          </div>
+        )}
+
+        {clientsTotalPages > 1 && (
+          <div className="mt-4 flex flex-wrap items-center justify-between gap-2 text-sm">
+            <span className="text-muted">
+              Página {cpage} de {clientsTotalPages} · {clientsTotalCount} clientes
+            </span>
+            <div className="flex gap-2">
+              {cpage > 1 && (
+                <Link
+                  href={buildQuery({ cpage: cpage - 1 })}
+                  className="inline-flex items-center justify-center rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-ink hover:bg-surface2"
+                >
+                  Anterior
+                </Link>
+              )}
+              {cpage < clientsTotalPages && (
+                <Link
+                  href={buildQuery({ cpage: cpage + 1 })}
+                  className="inline-flex items-center justify-center rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-ink hover:bg-surface2"
+                >
+                  Próxima
+                </Link>
+              )}
+            </div>
           </div>
         )}
       </Card>

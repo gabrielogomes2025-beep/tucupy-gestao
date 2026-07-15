@@ -2,6 +2,7 @@ import Link from "next/link";
 import { getAccessContext } from "@/lib/access";
 import { signOut } from "@/app/login/actions";
 import { Button, TucupyMark } from "@/components/ui";
+import { MobileNav } from "@/components/MobileNav";
 import type { Module } from "@/lib/types";
 
 const NAV: { href: string; label: string; icon: string; module: Module | null; requireEdit?: boolean }[] = [
@@ -17,10 +18,14 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const { profile, can, isSuperAdmin } = await getAccessContext();
 
   const items = NAV.filter((item) => !item.module || can(item.module, item.requireEdit ? "edit" : "view"));
+  const profileName = profile?.full_name || profile?.email || "";
+  const roleLabel = isSuperAdmin ? "Administrador" : "Colaborador";
 
   return (
-    <div className="flex min-h-screen">
-      <aside className="flex w-64 shrink-0 flex-col border-r border-border bg-surface px-4 py-6">
+    <div className="flex min-h-screen flex-col md:flex-row">
+      <MobileNav items={items} profileName={profileName} roleLabel={roleLabel} signOutAction={signOut} />
+
+      <aside className="hidden w-64 shrink-0 flex-col border-r border-border bg-surface px-4 py-6 md:flex">
         <div className="mb-8 flex items-center gap-2 px-2">
           <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10">
             <TucupyMark className="h-5 w-3.5" />
@@ -42,8 +47,8 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         </nav>
 
         <div className="mt-6 border-t border-border pt-4">
-          <div className="px-2 text-sm font-medium text-ink">{profile?.full_name || profile?.email}</div>
-          <div className="px-2 text-xs text-muted">{isSuperAdmin ? "Administrador" : "Colaborador"}</div>
+          <div className="px-2 text-sm font-medium text-ink">{profileName}</div>
+          <div className="px-2 text-xs text-muted">{roleLabel}</div>
           <form action={signOut} className="mt-3 px-2">
             <Button variant="ghost" className="w-full" type="submit">
               Sair
@@ -52,7 +57,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         </div>
       </aside>
 
-      <main className="min-h-screen flex-1 overflow-y-auto bg-bg px-8 py-8">{children}</main>
+      <main className="min-h-screen flex-1 overflow-y-auto bg-bg px-4 py-6 sm:px-8 sm:py-8">{children}</main>
     </div>
   );
 }
