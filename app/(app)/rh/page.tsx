@@ -1,7 +1,7 @@
 import { getAccessContext } from "@/lib/access";
 import { Card, PageHeader, Badge, Button, Input, Label, Select, EmptyState } from "@/components/ui";
 import { formatCurrency, formatDate, formatDateTime, formatFileSize } from "@/lib/format";
-import type { Employee, EmployeeDocument, EmployeeHistoryEntry, EmployeeSensitiveData } from "@/lib/types";
+import type { Employee, EmployeeContractData, EmployeeDocument, EmployeeHistoryEntry, EmployeeSensitiveData } from "@/lib/types";
 import {
   createEmployee,
   updateEmployee,
@@ -10,7 +10,11 @@ import {
   upsertEmployeeSensitiveData,
   uploadEmployeeDocument,
   deleteEmployeeDocument,
+  upsertContractData,
+  generateContract,
 } from "./actions";
+import { HiringTypeFields } from "@/components/HiringTypeFields";
+import { ContractAiExtract } from "@/components/ContractAiExtract";
 import { redirect } from "next/navigation";
 import Link from "next/link";
 
@@ -34,7 +38,14 @@ const DOC_CATEGORY_LABEL: Record<string, string> = {
   contrato: "Contrato assinado",
   documento_pessoal: "Documento pessoal (RG/CPF)",
   comprovante_endereco: "Comprovante de endereço",
+  cartao_cnpj: "Cartão CNPJ",
+  comprovante_matricula: "Comprovante de matrícula",
   outro: "Outro",
+};
+
+const HIRING_TYPE_LABEL: Record<string, string> = {
+  cnpj: "CNPJ (PJ)",
+  estagiario: "Estagiário",
 };
 
 export default async function RhPage({
@@ -101,7 +112,7 @@ export default async function RhPage({
     historyByEmployee.set(h.employee_id, [...(historyByEmployee.get(h.employee_id) ?? []), h]);
   }
 
-  const [{ data: sensitiveData }, { data: documents }] = canEdit
+  const [{ data: sensitiveData }, { data: documents }, { data: contractData }] = canEdit
     ? await Promise.all([
         list.length
           ? supabase.from("employee_sensitive_data").select("*").in("employee_id", list.map((e) => e.id)).returns<EmployeeSensitiveData[]>()
@@ -114,8 +125,11 @@ export default async function RhPage({
               .order("created_at", { ascending: false })
               .returns<EmployeeDocument[]>()
           : Promise.resolve({ data: [] as EmployeeDocument[] }),
+        list.length
+          ? supabase.from("employee_contract_data").select("*").in("employee_id", list.map((e) => e.id)).returns<EmployeeContractData[]>()
+          : Promise.resolve({ data: [] as EmployeeContractData[] }),
       ])
-    : [{ data: [] as EmployeeSensitiveData[] }, { data: [] as EmployeeDocument[] }];
+    : [{ data: [] as EmployeeSensitiveData[] }, { data: [] as EmployeeDocument[] }, { data: [] as EmployeeContractData[] }];
 
   const sensitiveByEmployee = new Map<string, EmployeeSensitiveData>();
   for (const s of sensitiveData ?? []) sensitiveByEmployee.set(s.employee_id, s);
@@ -124,6 +138,9 @@ export default async function RhPage({
   for (const d of documents ?? []) {
     documentsByEmployee.set(d.employee_id, [...(documentsByEmployee.get(d.employee_id) ?? []), d]);
   }
+
+  const contractByEmployee = new Map<string, EmployeeContractData>();
+  for (const c of contractData ?? []) contractByEmployee.set(c.employee_id, c);
 
   const signedDocUrls = new Map<string, string>();
   if (canEdit) {
@@ -184,6 +201,20 @@ export default async function RhPage({
                     <Label>Data de admissão</Label>
                     <Input name="hire_date" type="date" />
                   </div>
+                  <div>
+                    <Label>Endereço completo</Label>
+                    <Input name="address" placeholder="Rua, número, bairro, cidade/UF, CEP" />
+                  </div>
+                  <div>
+                    <Label>Estado civil</Label>
+                    <Input name="marital_status" placeholder="Ex: Solteiro(a)" />
+                  </div>
+
+                  <div className="border-t border-border pt-3">
+                    <p className="mb-2 text-xs text-muted">Dados de contratação (usados para gerar o contrato)</p>
+                    <HiringTypeFields />
+                  </div>
+
                   <Button type="submit" className="w-full">
                     Salvar colaborador
                   </Button>
@@ -221,6 +252,7 @@ export default async function RhPage({
               <thead>
                 <tr className="border-b border-border text-xs uppercase text-muted">
                   <th className="py-2 pr-3">Nome</th>
+                  <th className="py-2 pr-3">Tipo</th>
                   <th className="py-2 pr-3">Cargo</th>
                   <th className="py-2 pr-3">Depto</th>
                   <th className="py-2 pr-3">Admissão</th>
@@ -235,6 +267,9 @@ export default async function RhPage({
                     <td className="py-2 pr-3">
                       <div className="font-medium">{e.full_name}</div>
                       <div className="text-xs text-muted">{e.email}</div>
+                    </td>
+                    <td className="py-2 pr-3">
+                      {e.hiring_type ? <Badge>{HIRING_TYPE_LABEL[e.hiring_type] || e.hiring_type}</Badge> : <span className="text-muted">—</span>}
                     </td>
                     <td className="py-2 pr-3 text-muted">{e.role || "—"}</td>
                     <td className="py-2 pr-3 text-muted">{e.department || "—"}</td>
@@ -297,12 +332,178 @@ export default async function RhPage({
                                   <Label>Data de admissão</Label>
                                   <Input name="hire_date" type="date" defaultValue={e.hire_date ?? ""} />
                                 </div>
+                                <div>
+                                  <Label>Endereço completo</Label>
+                                  <Input id={`f-${e.id}-address`} name="address" defaultValue={e.address ?? ""} />
+                                </div>
+                                <div className="grid grid-cols-2 gap-3">
+                                  <div>
+                                    <Label>Estado civil</Label>
+                                    <Input id={`f-${e.id}-marital_status`} name="marital_status" defaultValue={e.marital_status ?? ""} />
+                                  </div>
+                                  <div>
+                                    <Label>Tipo de contratação</Label>
+                                    <Select name="hiring_type" defaultValue={e.hiring_type ?? ""}>
+                                      <option value="">— não definido —</option>
+                                      <option value="cnpj">CNPJ (PJ)</option>
+                                      <option value="estagiario">Estagiário</option>
+                                    </Select>
+                                  </div>
+                                </div>
                                 <Button type="submit" className="w-full">
                                   Salvar alterações
                                 </Button>
                               </form>
                             </Card>
                           </details>
+                          {e.hiring_type && (
+                            <details className="relative">
+                              <summary className="inline-flex list-none cursor-pointer items-center justify-center rounded-lg border border-border px-2 py-1 text-xs font-medium text-ink hover:bg-surface2">
+                                Contrato
+                              </summary>
+                              <Card className="absolute right-0 z-10 mt-2 w-[360px]">
+                                <p className="mb-3 text-xs text-muted">
+                                  Preencha os dados de {HIRING_TYPE_LABEL[e.hiring_type] || e.hiring_type} e gere o contrato a partir do modelo.
+                                </p>
+                                <ContractAiExtract employeeId={e.id} hiringType={e.hiring_type} />
+                                <form action={upsertContractData} className="space-y-3">
+                                  <input type="hidden" name="employee_id" value={e.id} />
+                                  <input type="hidden" name="hiring_type" value={e.hiring_type} />
+                                  {e.hiring_type === "cnpj" ? (
+                                    <>
+                                      <div>
+                                        <Label>Razão social</Label>
+                                        <Input id={`f-${e.id}-cnpj_razao_social`} name="cnpj_razao_social" defaultValue={contractByEmployee.get(e.id)?.cnpj_razao_social ?? ""} />
+                                      </div>
+                                      <div>
+                                        <Label>CNPJ</Label>
+                                        <Input id={`f-${e.id}-cnpj_numero`} name="cnpj_numero" defaultValue={contractByEmployee.get(e.id)?.cnpj_numero ?? ""} placeholder="00.000.000/0001-00" />
+                                      </div>
+                                      <div className="grid grid-cols-2 gap-3">
+                                        <div>
+                                          <Label>Valor mensal (R$)</Label>
+                                          <Input
+                                            name="cnpj_valor_mensal"
+                                            type="number"
+                                            step="0.01"
+                                            min="0"
+                                            defaultValue={contractByEmployee.get(e.id)?.cnpj_valor_mensal ?? ""}
+                                          />
+                                        </div>
+                                        <div>
+                                          <Label>Dia de pagamento</Label>
+                                          <Input
+                                            name="cnpj_dia_pagamento"
+                                            type="number"
+                                            min="1"
+                                            max="28"
+                                            defaultValue={contractByEmployee.get(e.id)?.cnpj_dia_pagamento ?? 10}
+                                          />
+                                        </div>
+                                      </div>
+                                      <div className="grid grid-cols-2 gap-3">
+                                        <div>
+                                          <Label>Início do contrato</Label>
+                                          <Input
+                                            name="cnpj_contract_start_date"
+                                            type="date"
+                                            defaultValue={contractByEmployee.get(e.id)?.cnpj_contract_start_date ?? ""}
+                                          />
+                                        </div>
+                                        <div>
+                                          <Label>Prazo (meses)</Label>
+                                          <Input name="cnpj_prazo_meses" type="number" min="1" defaultValue={contractByEmployee.get(e.id)?.cnpj_prazo_meses ?? 3} />
+                                        </div>
+                                      </div>
+                                      <div>
+                                        <Label>Chave PIX (empresa)</Label>
+                                        <Input name="cnpj_pix_key" defaultValue={contractByEmployee.get(e.id)?.cnpj_pix_key ?? ""} />
+                                      </div>
+                                      <div>
+                                        <Label>Banco</Label>
+                                        <Input name="cnpj_bank_name" defaultValue={contractByEmployee.get(e.id)?.cnpj_bank_name ?? ""} />
+                                      </div>
+                                      <div className="grid grid-cols-2 gap-3">
+                                        <div>
+                                          <Label>Agência</Label>
+                                          <Input name="cnpj_bank_agency" defaultValue={contractByEmployee.get(e.id)?.cnpj_bank_agency ?? ""} />
+                                        </div>
+                                        <div>
+                                          <Label>Conta</Label>
+                                          <Input name="cnpj_bank_account" defaultValue={contractByEmployee.get(e.id)?.cnpj_bank_account ?? ""} />
+                                        </div>
+                                      </div>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <div className="grid grid-cols-2 gap-3">
+                                        <div>
+                                          <Label>Instituição de ensino</Label>
+                                          <Input id={`f-${e.id}-estagio_instituicao`} name="estagio_instituicao" defaultValue={contractByEmployee.get(e.id)?.estagio_instituicao ?? ""} />
+                                        </div>
+                                        <div>
+                                          <Label>Curso</Label>
+                                          <Input id={`f-${e.id}-estagio_curso`} name="estagio_curso" defaultValue={contractByEmployee.get(e.id)?.estagio_curso ?? ""} />
+                                        </div>
+                                      </div>
+                                      <div className="grid grid-cols-2 gap-3">
+                                        <div>
+                                          <Label>Início do estágio</Label>
+                                          <Input name="estagio_start_date" type="date" defaultValue={contractByEmployee.get(e.id)?.estagio_start_date ?? ""} />
+                                        </div>
+                                        <div>
+                                          <Label>Fim do estágio</Label>
+                                          <Input name="estagio_end_date" type="date" defaultValue={contractByEmployee.get(e.id)?.estagio_end_date ?? ""} />
+                                        </div>
+                                      </div>
+                                      <div className="grid grid-cols-2 gap-3">
+                                        <div>
+                                          <Label>Bolsa-auxílio (R$)</Label>
+                                          <Input
+                                            name="estagio_bolsa_valor"
+                                            type="number"
+                                            step="0.01"
+                                            min="0"
+                                            defaultValue={contractByEmployee.get(e.id)?.estagio_bolsa_valor ?? ""}
+                                          />
+                                        </div>
+                                        <div>
+                                          <Label>Carga horária semanal</Label>
+                                          <Input
+                                            name="estagio_carga_horaria_semanal"
+                                            type="number"
+                                            min="1"
+                                            max="40"
+                                            defaultValue={contractByEmployee.get(e.id)?.estagio_carga_horaria_semanal ?? ""}
+                                          />
+                                        </div>
+                                      </div>
+                                      <div>
+                                        <Label>Horário</Label>
+                                        <Input name="estagio_horario" defaultValue={contractByEmployee.get(e.id)?.estagio_horario ?? ""} />
+                                      </div>
+                                    </>
+                                  )}
+                                  <Button type="submit" variant="ghost" className="w-full">
+                                    Salvar dados do contrato
+                                  </Button>
+                                </form>
+
+                                <form action={generateContract} className="mt-3 border-t border-border pt-3">
+                                  <input type="hidden" name="employee_id" value={e.id} />
+                                  <Button type="submit" className="w-full">
+                                    Gerar contrato (.docx)
+                                  </Button>
+                                  {contractByEmployee.get(e.id)?.contract_generated_at && (
+                                    <p className="mt-2 text-xs text-muted">
+                                      Último gerado em {formatDateTime(contractByEmployee.get(e.id)!.contract_generated_at!)} — disponível em
+                                      "Anexos".
+                                    </p>
+                                  )}
+                                </form>
+                              </Card>
+                            </details>
+                          )}
                           <details className="relative">
                             <summary className="inline-flex list-none cursor-pointer items-center justify-center rounded-lg border border-border px-2 py-1 text-xs font-medium text-ink hover:bg-surface2">
                               Histórico ({(historyByEmployee.get(e.id) ?? []).length})
@@ -336,11 +537,11 @@ export default async function RhPage({
                                 <div className="grid grid-cols-2 gap-3">
                                   <div>
                                     <Label>CPF</Label>
-                                    <Input name="cpf" defaultValue={sensitiveByEmployee.get(e.id)?.cpf ?? ""} placeholder="000.000.000-00" />
+                                    <Input id={`f-${e.id}-cpf`} name="cpf" defaultValue={sensitiveByEmployee.get(e.id)?.cpf ?? ""} placeholder="000.000.000-00" />
                                   </div>
                                   <div>
                                     <Label>RG</Label>
-                                    <Input name="rg" defaultValue={sensitiveByEmployee.get(e.id)?.rg ?? ""} />
+                                    <Input id={`f-${e.id}-rg`} name="rg" defaultValue={sensitiveByEmployee.get(e.id)?.rg ?? ""} />
                                   </div>
                                 </div>
                                 <div>

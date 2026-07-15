@@ -23,6 +23,8 @@ export type TerminationReason =
   | "termino_contrato"
   | "outro";
 
+export type HiringType = "cnpj" | "estagiario";
+
 export type Employee = {
   id: string;
   full_name: string;
@@ -37,6 +39,9 @@ export type Employee = {
   termination_date: string | null;
   termination_reason: TerminationReason | null;
   created_at: string;
+  hiring_type: HiringType | null;
+  address: string | null;
+  marital_status: string | null;
 };
 
 export type LeaveType = "ferias" | "atestado" | "falta_justificada" | "falta_injustificada" | "outro";
@@ -215,7 +220,13 @@ export type EmployeeSensitiveData = {
   updated_at: string;
 };
 
-export type EmployeeDocumentCategory = "contrato" | "documento_pessoal" | "comprovante_endereco" | "outro";
+export type EmployeeDocumentCategory =
+  | "contrato"
+  | "documento_pessoal"
+  | "comprovante_endereco"
+  | "cartao_cnpj"
+  | "comprovante_matricula"
+  | "outro";
 
 export type EmployeeDocument = {
   id: string;
@@ -226,6 +237,30 @@ export type EmployeeDocument = {
   content_type: string | null;
   category: EmployeeDocumentCategory;
   created_at: string;
+};
+
+export type EmployeeContractData = {
+  employee_id: string;
+  cnpj_razao_social: string | null;
+  cnpj_numero: string | null;
+  cnpj_valor_mensal: number | null;
+  cnpj_contract_start_date: string | null;
+  cnpj_prazo_meses: number | null;
+  cnpj_dia_pagamento: number | null;
+  cnpj_bank_name: string | null;
+  cnpj_bank_agency: string | null;
+  cnpj_bank_account: string | null;
+  cnpj_pix_key: string | null;
+  estagio_instituicao: string | null;
+  estagio_curso: string | null;
+  estagio_start_date: string | null;
+  estagio_end_date: string | null;
+  estagio_bolsa_valor: number | null;
+  estagio_carga_horaria_semanal: number | null;
+  estagio_horario: string | null;
+  contract_document_id: string | null;
+  contract_generated_at: string | null;
+  updated_at: string;
 };
 
 export type AuditAction = "insert" | "update" | "delete";
