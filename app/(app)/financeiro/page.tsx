@@ -1,8 +1,15 @@
 import { getAccessContext } from "@/lib/access";
 import { Card, PageHeader, Badge, Button, Input, Label, Select, Textarea, EmptyState, Kpi } from "@/components/ui";
-import { formatCurrency, formatDate } from "@/lib/format";
-import type { Project, Transaction } from "@/lib/types";
-import { createTransaction, updateTransaction, markStatus, deleteTransaction } from "./actions";
+import { formatCurrency, formatDate, formatFileSize } from "@/lib/format";
+import type { Project, Transaction, TransactionFile } from "@/lib/types";
+import {
+  createTransaction,
+  updateTransaction,
+  markStatus,
+  deleteTransaction,
+  uploadTransactionFile,
+  deleteTransactionFile,
+} from "./actions";
 import { redirect } from "next/navigation";
 
 const CATEGORIES = [
@@ -33,6 +40,26 @@ export default async function FinanceiroPage() {
   ]);
 
   const list = transactions ?? [];
+
+  const { data: txFiles } = list.length
+    ? await supabase
+        .from("transaction_files")
+        .select("*")
+        .in(
+          "transaction_id",
+          list.map((t) => t.id)
+        )
+        .order("created_at", { ascending: false })
+        .returns<TransactionFile[]>()
+    : { data: [] as TransactionFile[] };
+
+  const filesByTx = new Map<string, (TransactionFile & { signedUrl: string | null })[]>();
+  for (const f of txFiles ?? []) {
+    const { data: signed } = await supabase.storage.from("transaction-files").createSignedUrl(f.storage_path, 60 * 60);
+    const entry = { ...f, signedUrl: signed?.signedUrl ?? null };
+    filesByTx.set(f.transaction_id, [...(filesByTx.get(f.transaction_id) ?? []), entry]);
+  }
+
   const receitas = list.filter((t) => t.type === "receita" && t.status === "realizado").reduce((s, t) => s + Number(t.amount), 0);
   const despesas = list.filter((t) => t.type === "despesa" && t.status === "realizado").reduce((s, t) => s + Number(t.amount), 0);
 
@@ -48,7 +75,14 @@ export default async function FinanceiroPage() {
         title="Financeiro"
         description="Contas a pagar/receber e fluxo de caixa"
         action={
-          canEdit ? (
+          <div className="flex items-center gap-2">
+            <a
+              href="/financeiro/export"
+              className="inline-flex items-center justify-center gap-2 rounded-xl border border-border px-4 py-2 text-sm font-medium text-ink hover:bg-surface2"
+            >
+              Exportar CSV
+            </a>
+            {canEdit && (
             <details className="relative">
               <summary className="inline-flex list-none cursor-pointer items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2 text-sm font-medium text-[#0f0f0f] hover:bg-primary-dark">
                 + Novo lançamento
@@ -110,7 +144,8 @@ export default async function FinanceiroPage() {
                 </form>
               </Card>
             </details>
-          ) : null
+            )}
+          </div>
         }
       />
 
@@ -305,6 +340,54 @@ export default async function FinanceiroPage() {
                                   Salvar alterações
                                 </Button>
                               </form>
+                            </Card>
+                          </details>
+                          <details className="relative">
+                            <summary className="inline-flex list-none cursor-pointer items-center justify-center rounded-lg border border-border px-2 py-1 text-xs font-medium text-ink hover:bg-surface2">
+                              Anexos ({(filesByTx.get(t.id) ?? []).length})
+                            </summary>
+                            <Card className="absolute right-0 z-10 mt-2 w-[300px]">
+                              <form action={uploadTransactionFile} className="space-y-3" encType="multipart/form-data">
+                                <input type="hidden" name="transaction_id" value={t.id} />
+                                <div>
+                                  <Label>Comprovante / nota fiscal</Label>
+                                  <Input name="file" type="file" required />
+                                  <p className="mt-1 text-xs text-muted">Máx. 20MB.</p>
+                                </div>
+                                <Button type="submit" className="w-full">
+                                  Enviar
+                                </Button>
+                              </form>
+                              {(filesByTx.get(t.id) ?? []).length > 0 && (
+                                <ul className="mt-3 space-y-2">
+                                  {(filesByTx.get(t.id) ?? []).map((f) => (
+                                    <li key={f.id} className="flex items-center justify-between gap-2 text-xs">
+                                      <div className="min-w-0">
+                                        {f.signedUrl ? (
+                                          <a
+                                            href={f.signedUrl}
+                                            target="_blank"
+                                            rel="noreferrer"
+                                            className="truncate text-ink hover:text-primary hover:underline"
+                                          >
+                                            {f.file_name}
+                                          </a>
+                                        ) : (
+                                          <span className="truncate text-ink">{f.file_name}</span>
+                                        )}
+                                        <div className="text-muted">{formatFileSize(f.file_size)}</div>
+                                      </div>
+                                      <form action={deleteTransactionFile}>
+                                        <input type="hidden" name="id" value={f.id} />
+                                        <input type="hidden" name="storage_path" value={f.storage_path} />
+                                        <Button variant="danger" className="px-1.5 py-0.5 text-[10px]" type="submit">
+                                          Excluir
+                                        </Button>
+                                      </form>
+                                    </li>
+                                  ))}
+                                </ul>
+                              )}
                             </Card>
                           </details>
                           <form action={deleteTransaction}>

@@ -74,3 +74,54 @@ export async function deleteTransaction(formData: FormData) {
   revalidatePath("/financeiro");
   revalidatePath("/dashboard");
 }
+
+const MAX_FILE_BYTES = 20 * 1024 * 1024; // 20MB
+
+export async function uploadTransactionFile(formData: FormData) {
+  const { supabase, can, user } = await getAccessContext();
+  if (!can("financeiro", "edit")) throw new Error("Sem permissão de edição em Financeiro.");
+
+  const transactionId = String(formData.get("transaction_id") || "");
+  const file = formData.get("file");
+
+  if (!transactionId) throw new Error("Lançamento inválido.");
+  if (!(file instanceof File) || file.size === 0) throw new Error("Selecione um arquivo.");
+  if (file.size > MAX_FILE_BYTES) throw new Error("Arquivo maior que 20MB.");
+
+  const safeName = file.name.replace(/[^\w.\-]+/g, "_");
+  const storagePath = `${transactionId}/${Date.now()}-${safeName}`;
+
+  const { error: uploadError } = await supabase.storage.from("transaction-files").upload(storagePath, file, {
+    contentType: file.type || "application/octet-stream",
+  });
+  if (uploadError) throw new Error(uploadError.message);
+
+  const { error: dbError } = await supabase.from("transaction_files").insert({
+    transaction_id: transactionId,
+    file_name: file.name,
+    storage_path: storagePath,
+    file_size: file.size,
+    content_type: file.type || null,
+    uploaded_by: user.id,
+  });
+  if (dbError) {
+    await supabase.storage.from("transaction-files").remove([storagePath]);
+    throw new Error(dbError.message);
+  }
+
+  revalidatePath("/financeiro");
+}
+
+export async function deleteTransactionFile(formData: FormData) {
+  const { supabase, can } = await getAccessContext();
+  if (!can("financeiro", "edit")) throw new Error("Sem permissão de edição em Financeiro.");
+
+  const id = String(formData.get("id"));
+  const storagePath = String(formData.get("storage_path"));
+
+  await supabase.storage.from("transaction-files").remove([storagePath]);
+  const { error } = await supabase.from("transaction_files").delete().eq("id", id);
+  if (error) throw new Error(error.message);
+
+  revalidatePath("/financeiro");
+}

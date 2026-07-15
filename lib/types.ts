@@ -112,3 +112,44 @@ export type ProjectFile = {
   category: ProjectFileCategory;
   created_at: string;
 };
+
+export type ProjectTeamMember = {
+  id: string;
+  project_id: string;
+  employee_id: string;
+  allocated_hours: number;
+  hourly_cost_snapshot: number;
+  created_at: string;
+  employees?: { full_name: string } | null;
+};
+
+export type ProjectBudgetCategory = {
+  id: string;
+  project_id: string;
+  category: string;
+  budgeted_amount: number;
+};
+
+export type TransactionFile = {
+  id: string;
+  transaction_id: string;
+  file_name: string;
+  storage_path: string;
+  file_size: number | null;
+  content_type: string | null;
+  created_at: string;
+};
+
+export type Invite = {
+  id: string;
+  email: string;
+  token: string;
+  employee_id: string | null;
+  financeiro_access: AccessLevel;
+  rh_access: AccessLevel;
+  projetos_access: AccessLevel;
+  permissoes_access: AccessLevel;
+  used_at: string | null;
+  expires_at: string;
+  created_at: string;
+};

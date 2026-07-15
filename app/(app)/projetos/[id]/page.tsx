@@ -1,8 +1,16 @@
 import { getAccessContext } from "@/lib/access";
 import { Card, PageHeader, Badge, Button, Input, Label, Select, Textarea, EmptyState } from "@/components/ui";
 import { formatCurrency, formatDate, formatFileSize, formatDateTime } from "@/lib/format";
-import type { Client, Project, ProjectFile, Transaction } from "@/lib/types";
-import { uploadProjectFile, deleteProjectFile, updateProject } from "../actions";
+import type { Client, Employee, Project, ProjectBudgetCategory, ProjectFile, ProjectTeamMember, Transaction } from "@/lib/types";
+import {
+  uploadProjectFile,
+  deleteProjectFile,
+  updateProject,
+  addProjectTeamMember,
+  removeProjectTeamMember,
+  upsertBudgetCategory,
+  deleteBudgetCategory,
+} from "../actions";
 import { createTransaction, markStatus } from "../../financeiro/actions";
 import { redirect, notFound } from "next/navigation";
 import Link from "next/link";
@@ -42,6 +50,8 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
   const canEdit = can("projetos", "edit");
   const canEditFinanceiro = can("financeiro", "edit");
   const canViewFinanceiro = can("financeiro", "view");
+  const canEditTeam = can("projetos", "edit") || can("rh", "edit");
+  const canViewTeam = can("projetos", "view") || can("rh", "view") || canViewFinanceiro;
 
   const { data: project } = await supabase
     .from("projects")
@@ -66,6 +76,31 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
   const txRealizado = txList
     .filter((t) => t.status === "realizado")
     .reduce((s, t) => s + Number(t.amount) * (t.type === "despesa" ? -1 : 1), 0);
+
+  const [{ data: teamMembers }, { data: activeEmployees }, { data: budgetCategories }] = await Promise.all([
+    canViewTeam
+      ? supabase
+          .from("project_team")
+          .select("*, employees(full_name)")
+          .eq("project_id", id)
+          .returns<ProjectTeamMember[]>()
+      : Promise.resolve({ data: [] as ProjectTeamMember[] }),
+    canEditTeam
+      ? supabase.from("employees").select("id, full_name").eq("active", true).order("full_name").returns<Pick<Employee, "id" | "full_name">[]>()
+      : Promise.resolve({ data: [] as Pick<Employee, "id" | "full_name">[] }),
+    canViewFinanceiro
+      ? supabase.from("project_budget_categories").select("*").eq("project_id", id).order("category").returns<ProjectBudgetCategory[]>()
+      : Promise.resolve({ data: [] as ProjectBudgetCategory[] }),
+  ]);
+
+  const team = teamMembers ?? [];
+  const teamCost = team.reduce((s, m) => s + Number(m.allocated_hours) * Number(m.hourly_cost_snapshot), 0);
+
+  const categories = budgetCategories ?? [];
+  const realizadoPorCategoria = new Map<string, number>();
+  txList
+    .filter((t) => t.type === "despesa" && t.status === "realizado")
+    .forEach((t) => realizadoPorCategoria.set(t.category, (realizadoPorCategoria.get(t.category) ?? 0) + Number(t.amount)));
 
   const { data: files } = await supabase
     .from("project_files")
@@ -277,6 +312,155 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
                 ))}
               </ul>
             </>
+          )}
+        </Card>
+      )}
+
+      {canViewTeam && (
+        <Card className="mb-6">
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h2 className="text-sm font-semibold text-ink">Equipe alocada ({team.length})</h2>
+              <p className="mt-1 text-xs text-muted">Horas planejadas por colaborador e custo estimado da equipe neste projeto.</p>
+            </div>
+            {canEditTeam && (
+              <details className="relative">
+                <summary className="inline-flex list-none cursor-pointer items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2 text-sm font-medium text-[#0f0f0f] hover:bg-primary-dark">
+                  + Alocar colaborador
+                </summary>
+                <Card className="absolute right-0 z-10 mt-2 w-[320px]">
+                  <form action={addProjectTeamMember} className="space-y-3">
+                    <input type="hidden" name="project_id" value={project.id} />
+                    <div>
+                      <Label>Colaborador</Label>
+                      <Select name="employee_id" required>
+                        {(activeEmployees ?? []).map((e) => (
+                          <option key={e.id} value={e.id}>
+                            {e.full_name}
+                          </option>
+                        ))}
+                      </Select>
+                    </div>
+                    <div>
+                      <Label>Horas alocadas</Label>
+                      <Input name="allocated_hours" type="number" step="0.5" min="0" required placeholder="0" />
+                    </div>
+                    <p className="text-xs text-muted">O custo/hora é puxado automaticamente do cadastro do colaborador.</p>
+                    <Button type="submit" className="w-full">
+                      Salvar
+                    </Button>
+                  </form>
+                </Card>
+              </details>
+            )}
+          </div>
+
+          {team.length === 0 ? (
+            <EmptyState>Nenhum colaborador alocado a este projeto ainda.</EmptyState>
+          ) : (
+            <>
+              <div className="mb-3 text-sm">
+                <span className="text-muted">Custo estimado da equipe: </span>
+                <span className="font-semibold text-danger">{formatCurrency(teamCost)}</span>
+              </div>
+              <ul className="space-y-2">
+                {team.map((m) => (
+                  <li key={m.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border px-3 py-2 text-sm">
+                    <div className="min-w-0">
+                      <div className="font-medium">{m.employees?.full_name || "—"}</div>
+                      <div className="text-xs text-muted">
+                        {m.allocated_hours}h · {formatCurrency(m.hourly_cost_snapshot)}/h
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium text-danger">{formatCurrency(Number(m.allocated_hours) * Number(m.hourly_cost_snapshot))}</span>
+                      {canEditTeam && (
+                        <form action={removeProjectTeamMember}>
+                          <input type="hidden" name="id" value={m.id} />
+                          <input type="hidden" name="project_id" value={project.id} />
+                          <Button variant="danger" className="px-2 py-1 text-xs" type="submit">
+                            Remover
+                          </Button>
+                        </form>
+                      )}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+        </Card>
+      )}
+
+      {canViewFinanceiro && (
+        <Card className="mb-6">
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h2 className="text-sm font-semibold text-ink">Orçamento por categoria ({categories.length})</h2>
+              <p className="mt-1 text-xs text-muted">Compare o planejado por categoria com o que já foi realizado em Financeiro.</p>
+            </div>
+            {canEditFinanceiro && (
+              <details className="relative">
+                <summary className="inline-flex list-none cursor-pointer items-center justify-center gap-2 rounded-xl border border-border px-4 py-2 text-sm font-medium text-ink hover:bg-surface2">
+                  + Categoria
+                </summary>
+                <Card className="absolute right-0 z-10 mt-2 w-[320px]">
+                  <form action={upsertBudgetCategory} className="space-y-3">
+                    <input type="hidden" name="project_id" value={project.id} />
+                    <div>
+                      <Label>Categoria</Label>
+                      <Select name="category" defaultValue="Outro">
+                        {FIN_CATEGORIES.map((c) => (
+                          <option key={c} value={c}>
+                            {c}
+                          </option>
+                        ))}
+                      </Select>
+                    </div>
+                    <div>
+                      <Label>Valor orçado (R$)</Label>
+                      <Input name="budgeted_amount" type="number" step="0.01" min="0" required placeholder="0,00" />
+                    </div>
+                    <Button type="submit" className="w-full">
+                      Salvar
+                    </Button>
+                  </form>
+                </Card>
+              </details>
+            )}
+          </div>
+
+          {categories.length === 0 ? (
+            <EmptyState>Nenhuma categoria de orçamento cadastrada ainda.</EmptyState>
+          ) : (
+            <ul className="space-y-2">
+              {categories.map((c) => {
+                const realizado = realizadoPorCategoria.get(c.category) ?? 0;
+                const estourou = realizado > Number(c.budgeted_amount);
+                return (
+                  <li key={c.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border px-3 py-2 text-sm">
+                    <div className="min-w-0">
+                      <div className="font-medium">{c.category}</div>
+                      <div className="text-xs text-muted">
+                        Orçado: {formatCurrency(c.budgeted_amount)} · Realizado: <span className={estourou ? "text-danger" : ""}>{formatCurrency(realizado)}</span>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Badge tone={estourou ? "bad" : "good"}>{estourou ? "acima do orçado" : "dentro do orçado"}</Badge>
+                      {canEditFinanceiro && (
+                        <form action={deleteBudgetCategory}>
+                          <input type="hidden" name="id" value={c.id} />
+                          <input type="hidden" name="project_id" value={project.id} />
+                          <Button variant="danger" className="px-2 py-1 text-xs" type="submit">
+                            Excluir
+                          </Button>
+                        </form>
+                      )}
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
           )}
         </Card>
       )}

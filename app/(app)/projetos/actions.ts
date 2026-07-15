@@ -129,3 +129,66 @@ export async function deleteProjectFile(formData: FormData) {
 
   revalidatePath(`/projetos/${projectId}`);
 }
+
+export async function addProjectTeamMember(formData: FormData) {
+  const { supabase, can } = await getAccessContext();
+  if (!can("projetos", "edit") && !can("rh", "edit")) throw new Error("Sem permissão para alocar equipe.");
+
+  const projectId = String(formData.get("project_id") || "");
+  const employeeId = String(formData.get("employee_id") || "");
+  const allocatedHours = Number(formData.get("allocated_hours") || 0);
+  if (!projectId || !employeeId) throw new Error("Selecione um colaborador.");
+
+  const { data: employee } = await supabase.from("employees").select("hourly_cost").eq("id", employeeId).single();
+  const hourlyCost = Number(employee?.hourly_cost ?? 0);
+
+  const { error } = await supabase.from("project_team").upsert(
+    {
+      project_id: projectId,
+      employee_id: employeeId,
+      allocated_hours: allocatedHours,
+      hourly_cost_snapshot: hourlyCost,
+    },
+    { onConflict: "project_id,employee_id" }
+  );
+  if (error) throw new Error(error.message);
+  revalidatePath(`/projetos/${projectId}`);
+}
+
+export async function removeProjectTeamMember(formData: FormData) {
+  const { supabase, can } = await getAccessContext();
+  if (!can("projetos", "edit") && !can("rh", "edit")) throw new Error("Sem permissão para alocar equipe.");
+
+  const id = String(formData.get("id"));
+  const projectId = String(formData.get("project_id"));
+  const { error } = await supabase.from("project_team").delete().eq("id", id);
+  if (error) throw new Error(error.message);
+  revalidatePath(`/projetos/${projectId}`);
+}
+
+export async function upsertBudgetCategory(formData: FormData) {
+  const { supabase, can } = await getAccessContext();
+  if (!can("financeiro", "edit")) throw new Error("Sem permissão de edição em Financeiro.");
+
+  const projectId = String(formData.get("project_id") || "");
+  const category = String(formData.get("category") || "").trim();
+  const budgetedAmount = Number(formData.get("budgeted_amount") || 0);
+  if (!projectId || !category) throw new Error("Informe a categoria.");
+
+  const { error } = await supabase
+    .from("project_budget_categories")
+    .upsert({ project_id: projectId, category, budgeted_amount: budgetedAmount }, { onConflict: "project_id,category" });
+  if (error) throw new Error(error.message);
+  revalidatePath(`/projetos/${projectId}`);
+}
+
+export async function deleteBudgetCategory(formData: FormData) {
+  const { supabase, can } = await getAccessContext();
+  if (!can("financeiro", "edit")) throw new Error("Sem permissão de edição em Financeiro.");
+
+  const id = String(formData.get("id"));
+  const projectId = String(formData.get("project_id"));
+  const { error } = await supabase.from("project_budget_categories").delete().eq("id", id);
+  if (error) throw new Error(error.message);
+  revalidatePath(`/projetos/${projectId}`);
+}
