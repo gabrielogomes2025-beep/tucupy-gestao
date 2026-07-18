@@ -95,6 +95,7 @@ export async function updateEmployee(formData: FormData) {
 
   if (error) throw new Error(error.message);
   revalidatePath("/rh");
+  revalidatePath(`/rh/${id}`);
   revalidatePath("/dashboard");
 }
 
@@ -109,6 +110,7 @@ export async function upsertContractData(formData: FormData) {
   const { error } = await supabase.from("employee_contract_data").upsert(payload, { onConflict: "employee_id" });
   if (error) throw new Error(error.message);
   revalidatePath("/rh");
+  revalidatePath(`/rh/${employee_id}`);
 }
 
 function mesesEntre(inicioIso: string, fimIso: string): number {
@@ -216,6 +218,7 @@ export async function generateContract(formData: FormData) {
     );
 
   revalidatePath("/rh");
+  revalidatePath(`/rh/${employeeId}`);
 }
 
 export async function terminateEmployee(formData: FormData) {
@@ -232,6 +235,7 @@ export async function terminateEmployee(formData: FormData) {
     .eq("id", id);
   if (error) throw new Error(error.message);
   revalidatePath("/rh");
+  revalidatePath(`/rh/${id}`);
   revalidatePath("/dashboard");
 }
 
@@ -246,6 +250,7 @@ export async function reactivateEmployee(formData: FormData) {
     .eq("id", id);
   if (error) throw new Error(error.message);
   revalidatePath("/rh");
+  revalidatePath(`/rh/${id}`);
   revalidatePath("/dashboard");
 }
 
@@ -325,6 +330,7 @@ export async function upsertEmployeeSensitiveData(formData: FormData) {
   );
   if (error) throw new Error(error.message);
   revalidatePath("/rh");
+  revalidatePath(`/rh/${employee_id}`);
 }
 
 const MAX_DOC_BYTES = 20 * 1024 * 1024; // 20MB
@@ -364,6 +370,7 @@ export async function uploadEmployeeDocument(formData: FormData) {
   }
 
   revalidatePath("/rh");
+  revalidatePath(`/rh/${employeeId}`);
 }
 
 export async function deleteEmployeeDocument(formData: FormData) {
@@ -372,12 +379,14 @@ export async function deleteEmployeeDocument(formData: FormData) {
 
   const id = String(formData.get("id"));
   const storagePath = String(formData.get("storage_path"));
+  const employeeId = String(formData.get("employee_id") || "");
 
   await supabase.storage.from("employee-documents").remove([storagePath]);
   const { error } = await supabase.from("employee_documents").delete().eq("id", id);
   if (error) throw new Error(error.message);
 
   revalidatePath("/rh");
+  if (employeeId) revalidatePath(`/rh/${employeeId}`);
 }
 
 const SOURCE_DOC_CATEGORIES: EmployeeDocumentCategory[] = [
