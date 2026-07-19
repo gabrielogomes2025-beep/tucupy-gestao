@@ -7,12 +7,14 @@ import {
   terminateEmployee,
   reactivateEmployee,
   upsertEmployeeSensitiveData,
-  uploadEmployeeDocument,
+  createEmployeeDocumentUploadUrl,
+  finalizeEmployeeDocumentUpload,
   deleteEmployeeDocument,
   upsertContractData,
   generateContract,
 } from "../actions";
 import { ContractAiExtract } from "@/components/ContractAiExtract";
+import { EmployeeDocumentUpload } from "@/components/EmployeeDocumentUpload";
 import { redirect, notFound } from "next/navigation";
 import Link from "next/link";
 
@@ -142,7 +144,7 @@ export default async function EmployeeDetailPage({ params }: { params: Promise<{
         </Card>
       )}
 
-      <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-3">
+      <div className={`mb-6 grid grid-cols-1 gap-4 sm:grid-cols-3 ${employee.hiring_type === "estagiario" ? "lg:grid-cols-4" : ""}`}>
         <Card>
           <div className="text-xs uppercase tracking-wide text-muted">Salário mensal</div>
           <div className="mt-2 text-2xl font-semibold text-primary">{formatCurrency(employee.monthly_salary)}</div>
@@ -155,6 +157,12 @@ export default async function EmployeeDetailPage({ params }: { params: Promise<{
           <div className="text-xs uppercase tracking-wide text-muted">Admissão</div>
           <div className="mt-2 text-lg font-medium">{formatDate(employee.hire_date)}</div>
         </Card>
+        {employee.hiring_type === "estagiario" && (
+          <Card>
+            <div className="text-xs uppercase tracking-wide text-muted">Bolsa estágio</div>
+            <div className="mt-2 text-2xl font-semibold text-primary">{formatCurrency(contractData?.estagio_bolsa_valor)}</div>
+          </Card>
+        )}
       </div>
 
       <Card className="mb-6">
@@ -364,20 +372,12 @@ export default async function EmployeeDetailPage({ params }: { params: Promise<{
           <h2 className="text-sm font-semibold text-ink">Documentos ({docList.length})</h2>
         </div>
 
-        <form action={uploadEmployeeDocument} className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-3" encType="multipart/form-data">
-          <input type="hidden" name="employee_id" value={employee.id} />
-          <Select name="category" defaultValue="documento_pessoal">
-            {Object.entries(DOC_CATEGORY_LABEL).map(([v, l]) => (
-              <option key={v} value={v}>
-                {l}
-              </option>
-            ))}
-          </Select>
-          <Input name="file" type="file" required className="sm:col-span-1" />
-          <Button type="submit" variant="ghost">
-            Enviar documento
-          </Button>
-        </form>
+        <EmployeeDocumentUpload
+          employeeId={employee.id}
+          categoryOptions={Object.entries(DOC_CATEGORY_LABEL)}
+          createEmployeeDocumentUploadUrl={createEmployeeDocumentUploadUrl}
+          finalizeEmployeeDocumentUpload={finalizeEmployeeDocumentUpload}
+        />
 
         {docList.length === 0 ? (
           <EmptyState>Nenhum documento anexado ainda.</EmptyState>

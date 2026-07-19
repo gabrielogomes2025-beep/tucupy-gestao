@@ -77,31 +77,49 @@ export async function deleteTransaction(formData: FormData) {
 
 const MAX_FILE_BYTES = 20 * 1024 * 1024; // 20MB
 
-export async function uploadTransactionFile(formData: FormData) {
+// Transaction file uploads go straight from the browser to Supabase Storage
+// via a signed upload URL instead of through a Server Action — Server
+// Actions (and Vercel Serverless Functions generally) cap request bodies at
+// a few MB, which silently failed for larger scanned comprovantes/notas.
+export async function createTransactionFileUploadUrl(formData: FormData) {
+  const { supabase, can } = await getAccessContext();
+  if (!can("financeiro", "edit")) throw new Error("Sem permissão de edição em Financeiro.");
+
+  const transactionId = String(formData.get("transaction_id") || "");
+  const fileName = String(formData.get("file_name") || "");
+  const fileSize = Number(formData.get("file_size") || 0);
+
+  if (!transactionId) throw new Error("Lançamento inválido.");
+  if (!fileName) throw new Error("Selecione um arquivo.");
+  if (fileSize > MAX_FILE_BYTES) throw new Error("Arquivo maior que 20MB.");
+
+  const safeName = fileName.replace(/[^\w.\-]+/g, "_");
+  const storagePath = `${transactionId}/${Date.now()}-${safeName}`;
+
+  const { data, error } = await supabase.storage.from("transaction-files").createSignedUploadUrl(storagePath);
+  if (error) throw new Error(error.message);
+
+  return { storagePath, token: data.token };
+}
+
+export async function finalizeTransactionFileUpload(formData: FormData) {
   const { supabase, can, user } = await getAccessContext();
   if (!can("financeiro", "edit")) throw new Error("Sem permissão de edição em Financeiro.");
 
   const transactionId = String(formData.get("transaction_id") || "");
-  const file = formData.get("file");
+  const storagePath = String(formData.get("storage_path") || "");
+  const fileName = String(formData.get("file_name") || "");
+  const fileSize = Number(formData.get("file_size") || 0);
+  const contentType = String(formData.get("content_type") || "") || null;
 
-  if (!transactionId) throw new Error("Lançamento inválido.");
-  if (!(file instanceof File) || file.size === 0) throw new Error("Selecione um arquivo.");
-  if (file.size > MAX_FILE_BYTES) throw new Error("Arquivo maior que 20MB.");
-
-  const safeName = file.name.replace(/[^\w.\-]+/g, "_");
-  const storagePath = `${transactionId}/${Date.now()}-${safeName}`;
-
-  const { error: uploadError } = await supabase.storage.from("transaction-files").upload(storagePath, file, {
-    contentType: file.type || "application/octet-stream",
-  });
-  if (uploadError) throw new Error(uploadError.message);
+  if (!transactionId || !storagePath || !fileName) throw new Error("Upload inválido.");
 
   const { error: dbError } = await supabase.from("transaction_files").insert({
     transaction_id: transactionId,
-    file_name: file.name,
+    file_name: fileName,
     storage_path: storagePath,
-    file_size: file.size,
-    content_type: file.type || null,
+    file_size: fileSize || null,
+    content_type: contentType,
     uploaded_by: user.id,
   });
   if (dbError) {

@@ -13,7 +13,8 @@ import {
   updateTransaction,
   markStatus,
   deleteTransaction,
-  uploadTransactionFile,
+  createTransactionFileUploadUrl,
+  finalizeTransactionFileUpload,
   deleteTransactionFile,
   createRecurringTransaction,
   toggleRecurringTransaction,
@@ -590,7 +591,8 @@ export default async function FinanceiroPage({
                             categories={CATEGORIES}
                             files={filesByTx.get(t.id) ?? []}
                             updateTransaction={updateTransaction}
-                            uploadTransactionFile={uploadTransactionFile}
+                            createTransactionFileUploadUrl={createTransactionFileUploadUrl}
+                            finalizeTransactionFileUpload={finalizeTransactionFileUpload}
                             deleteTransactionFile={deleteTransactionFile}
                           />
                           <form action={deleteTransaction}>

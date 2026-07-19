@@ -335,32 +335,53 @@ export async function upsertEmployeeSensitiveData(formData: FormData) {
 
 const MAX_DOC_BYTES = 20 * 1024 * 1024; // 20MB
 
-export async function uploadEmployeeDocument(formData: FormData) {
+// Employee document uploads go straight from the browser to Supabase Storage
+// via a signed upload URL, instead of routing the file through a Server
+// Action. Server Actions (and Vercel Serverless Functions generally) cap
+// request bodies at a few MB, which silently failed for larger scanned
+// documents (comprovantes, RG, etc). createEmployeeDocumentUploadUrl issues
+// a short-lived signed URL; the client uploads directly to it; then
+// finalizeEmployeeDocumentUpload records the resulting file in the DB.
+export async function createEmployeeDocumentUploadUrl(formData: FormData) {
+  const { supabase, can } = await getAccessContext();
+  if (!can("rh", "edit")) throw new Error("Sem permissão de edição em RH.");
+
+  const employeeId = String(formData.get("employee_id") || "");
+  const fileName = String(formData.get("file_name") || "");
+  const fileSize = Number(formData.get("file_size") || 0);
+
+  if (!employeeId) throw new Error("Colaborador inválido.");
+  if (!fileName) throw new Error("Selecione um arquivo.");
+  if (fileSize > MAX_DOC_BYTES) throw new Error("Arquivo maior que 20MB.");
+
+  const safeName = fileName.replace(/[^\w.\-]+/g, "_");
+  const storagePath = `${employeeId}/${Date.now()}-${safeName}`;
+
+  const { data, error } = await supabase.storage.from("employee-documents").createSignedUploadUrl(storagePath);
+  if (error) throw new Error(error.message);
+
+  return { storagePath, token: data.token };
+}
+
+export async function finalizeEmployeeDocumentUpload(formData: FormData) {
   const { supabase, can, user } = await getAccessContext();
   if (!can("rh", "edit")) throw new Error("Sem permissão de edição em RH.");
 
   const employeeId = String(formData.get("employee_id") || "");
+  const storagePath = String(formData.get("storage_path") || "");
+  const fileName = String(formData.get("file_name") || "");
+  const fileSize = Number(formData.get("file_size") || 0);
+  const contentType = String(formData.get("content_type") || "") || null;
   const category = String(formData.get("category") || "outro");
-  const file = formData.get("file");
 
-  if (!employeeId) throw new Error("Colaborador inválido.");
-  if (!(file instanceof File) || file.size === 0) throw new Error("Selecione um arquivo.");
-  if (file.size > MAX_DOC_BYTES) throw new Error("Arquivo maior que 20MB.");
-
-  const safeName = file.name.replace(/[^\w.\-]+/g, "_");
-  const storagePath = `${employeeId}/${Date.now()}-${safeName}`;
-
-  const { error: uploadError } = await supabase.storage.from("employee-documents").upload(storagePath, file, {
-    contentType: file.type || "application/octet-stream",
-  });
-  if (uploadError) throw new Error(uploadError.message);
+  if (!employeeId || !storagePath || !fileName) throw new Error("Upload inválido.");
 
   const { error: dbError } = await supabase.from("employee_documents").insert({
     employee_id: employeeId,
-    file_name: file.name,
+    file_name: fileName,
     storage_path: storagePath,
-    file_size: file.size,
-    content_type: file.type || null,
+    file_size: fileSize || null,
+    content_type: contentType,
     category,
     uploaded_by: user.id,
   });

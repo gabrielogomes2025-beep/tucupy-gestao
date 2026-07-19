@@ -1,11 +1,14 @@
 "use client";
 
-import { useRef } from "react";
+import { useRef, useState, useTransition } from "react";
 import { Button, Input, Label, Select, Textarea } from "@/components/ui";
 import { formatFileSize } from "@/lib/format";
+import { createClient } from "@/lib/supabase/client";
 import type { Transaction, TransactionFile } from "@/lib/types";
 
 type FileWithUrl = TransactionFile & { signedUrl: string | null };
+
+const MAX_FILE_BYTES = 20 * 1024 * 1024; // 20MB
 
 export function TransactionDetailsModal({
   transaction,
@@ -13,7 +16,8 @@ export function TransactionDetailsModal({
   categories,
   files,
   updateTransaction,
-  uploadTransactionFile,
+  createTransactionFileUploadUrl,
+  finalizeTransactionFileUpload,
   deleteTransactionFile,
 }: {
   transaction: Transaction;
@@ -21,10 +25,57 @@ export function TransactionDetailsModal({
   categories: string[];
   files: FileWithUrl[];
   updateTransaction: (formData: FormData) => Promise<void>;
-  uploadTransactionFile: (formData: FormData) => Promise<void>;
+  createTransactionFileUploadUrl: (formData: FormData) => Promise<{ storagePath: string; token: string }>;
+  finalizeTransactionFileUpload: (formData: FormData) => Promise<void>;
   deleteTransactionFile: (formData: FormData) => Promise<void>;
 }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const [isUploading, startUpload] = useTransition();
+
+  function handleUpload(e: React.FormEvent) {
+    e.preventDefault();
+    setUploadError(null);
+
+    const file = fileInputRef.current?.files?.[0];
+    if (!file) {
+      setUploadError("Selecione um arquivo.");
+      return;
+    }
+    if (file.size > MAX_FILE_BYTES) {
+      setUploadError("Arquivo maior que 20MB.");
+      return;
+    }
+
+    startUpload(async () => {
+      try {
+        const urlForm = new FormData();
+        urlForm.set("transaction_id", transaction.id);
+        urlForm.set("file_name", file.name);
+        urlForm.set("file_size", String(file.size));
+        const { storagePath, token } = await createTransactionFileUploadUrl(urlForm);
+
+        const supabase = createClient();
+        const { error } = await supabase.storage
+          .from("transaction-files")
+          .uploadToSignedUrl(storagePath, token, file, { contentType: file.type || undefined });
+        if (error) throw new Error(error.message);
+
+        const finalizeForm = new FormData();
+        finalizeForm.set("transaction_id", transaction.id);
+        finalizeForm.set("storage_path", storagePath);
+        finalizeForm.set("file_name", file.name);
+        finalizeForm.set("file_size", String(file.size));
+        finalizeForm.set("content_type", file.type || "");
+        await finalizeTransactionFileUpload(finalizeForm);
+
+        if (fileInputRef.current) fileInputRef.current.value = "";
+      } catch (err: any) {
+        setUploadError(err?.message || "Falha ao enviar o arquivo.");
+      }
+    });
+  }
 
   return (
     <>
@@ -119,14 +170,19 @@ export function TransactionDetailsModal({
 
           <div className="mt-5 border-t border-border pt-4">
             <Label>Anexos ({files.length})</Label>
-            <form action={uploadTransactionFile} className="mt-2 flex items-center gap-2" encType="multipart/form-data">
-              <input type="hidden" name="transaction_id" value={transaction.id} />
-              <Input name="file" type="file" required className="flex-1" />
-              <Button type="submit" className="shrink-0 px-3 py-2 text-xs">
-                Enviar
+            <form onSubmit={handleUpload} className="mt-2 flex items-center gap-2">
+              <input
+                ref={fileInputRef}
+                type="file"
+                required
+                className="w-full flex-1 rounded-lg px-3 py-2 text-sm outline-none focus:border-primary"
+              />
+              <Button type="submit" className="shrink-0 px-3 py-2 text-xs" disabled={isUploading}>
+                {isUploading ? "Enviando..." : "Enviar"}
               </Button>
             </form>
             <p className="mt-1 text-xs text-muted">Máx. 20MB.</p>
+            {uploadError && <p className="mt-1 text-xs text-danger">{uploadError}</p>}
 
             {files.length > 0 && (
               <ul className="mt-3 space-y-2">

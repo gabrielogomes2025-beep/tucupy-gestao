@@ -11,14 +11,19 @@ export default async function FolhaPage({ searchParams }: { searchParams: Promis
   const canEdit = can("rh", "edit");
 
   const params = await searchParams;
-  const refMonth = params.mes || currentMonthISO();
+  const rawMonth = (params.mes || "").trim();
+  const refMonth = /^\d{4}-\d{2}$/.test(rawMonth) ? `${rawMonth}-01` : rawMonth || currentMonthISO();
 
-  const [{ data: employees }, { data: entries }] = await Promise.all([
+  const [{ data: employees }, { data: entries }, { data: contracts }] = await Promise.all([
     supabase.from("employees").select("*").eq("active", true).order("full_name").returns<Employee[]>(),
     supabase.from("payroll_entries").select("*").eq("ref_month", refMonth).returns<PayrollEntry[]>(),
+    supabase.from("employee_contract_data").select("employee_id, estagio_bolsa_valor"),
   ]);
 
   const entryByEmployee = new Map((entries ?? []).map((e) => [e.employee_id, e]));
+  const bolsaByEmployee = new Map((contracts ?? []).map((c: any) => [c.employee_id, Number(c.estagio_bolsa_valor ?? 0)]));
+  const defaultBaseFor = (emp: Employee) =>
+    emp.hiring_type === "estagiario" ? bolsaByEmployee.get(emp.id) ?? 0 : Number(emp.monthly_salary ?? 0);
   const total = (entries ?? []).reduce((s, e) => s + Number(e.net_amount), 0);
   const pago = (entries ?? []).filter((e) => e.status === "pago").reduce((s, e) => s + Number(e.net_amount), 0);
 
@@ -67,7 +72,12 @@ export default async function FolhaPage({ searchParams }: { searchParams: Promis
                     <tr key={emp.id} className="border-b border-border/60">
                       {canEdit ? (
                         <>
-                          <td className="py-2 pr-3 font-medium">{emp.full_name}</td>
+                          <td className="py-2 pr-3">
+                            <div className="font-medium">{emp.full_name}</div>
+                            {emp.hiring_type === "estagiario" && (
+                              <div className="text-xs text-muted">Bolsa estágio</div>
+                            )}
+                          </td>
                           <td className="py-2 pr-2">
                             <form action={upsertPayrollEntry} id={`f-${emp.id}`} className="contents">
                               <input type="hidden" name="employee_id" value={emp.id} />
@@ -78,7 +88,7 @@ export default async function FolhaPage({ searchParams }: { searchParams: Promis
                               name="base_salary"
                               type="number"
                               step="0.01"
-                              defaultValue={entry?.base_salary ?? emp.monthly_salary}
+                              defaultValue={entry?.base_salary ?? defaultBaseFor(emp)}
                               className="w-28"
                             />
                           </td>
@@ -88,7 +98,7 @@ export default async function FolhaPage({ searchParams }: { searchParams: Promis
                           <td className="py-2 pr-2">
                             <Input form={`f-${emp.id}`} name="deductions" type="number" step="0.01" defaultValue={entry?.deductions ?? 0} className="w-24" />
                           </td>
-                          <td className="py-2 pr-3 text-right font-medium text-primary">{formatCurrency(entry?.net_amount ?? emp.monthly_salary)}</td>
+                          <td className="py-2 pr-3 text-right font-medium text-primary">{formatCurrency(entry?.net_amount ?? defaultBaseFor(emp))}</td>
                           <td className="py-2 pr-3">
                             <Badge tone={entry?.status === "pago" ? "good" : "warn"}>{entry?.status ?? "não gerado"}</Badge>
                           </td>
@@ -110,11 +120,16 @@ export default async function FolhaPage({ searchParams }: { searchParams: Promis
                         </>
                       ) : (
                         <>
-                          <td className="py-2 pr-3 font-medium">{emp.full_name}</td>
-                          <td className="py-2 pr-3">{formatCurrency(entry?.base_salary ?? 0)}</td>
+                          <td className="py-2 pr-3">
+                            <div className="font-medium">{emp.full_name}</div>
+                            {emp.hiring_type === "estagiario" && (
+                              <div className="text-xs text-muted">Bolsa estágio</div>
+                            )}
+                          </td>
+                          <td className="py-2 pr-3">{formatCurrency(entry?.base_salary ?? defaultBaseFor(emp))}</td>
                           <td className="py-2 pr-3">{formatCurrency(entry?.bonuses ?? 0)}</td>
                           <td className="py-2 pr-3">{formatCurrency(entry?.deductions ?? 0)}</td>
-                          <td className="py-2 pr-3 text-right font-medium">{formatCurrency(entry?.net_amount ?? 0)}</td>
+                          <td className="py-2 pr-3 text-right font-medium">{formatCurrency(entry?.net_amount ?? defaultBaseFor(emp))}</td>
                           <td className="py-2 pr-3">
                             <Badge tone={entry?.status === "pago" ? "good" : "warn"}>{entry?.status ?? "não gerado"}</Badge>
                           </td>
