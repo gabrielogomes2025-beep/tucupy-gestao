@@ -3,7 +3,6 @@ import { Card, PageHeader, Badge, Button, Input, Label, Select, Textarea, EmptyS
 import {
   formatCurrency,
   formatDate,
-  formatFileSize,
   effectiveTransactionStatus,
   TRANSACTION_STATUS_LABEL,
   TRANSACTION_STATUS_TONE,
@@ -22,6 +21,7 @@ import {
 } from "./actions";
 import { redirect } from "next/navigation";
 import Link from "next/link";
+import { TransactionDetailsModal } from "@/components/TransactionDetailsModal";
 
 const DAY_OPTIONS = Array.from({ length: 28 }, (_, i) => i + 1);
 
@@ -584,117 +584,15 @@ export default async function FinanceiroPage({
                               </Button>
                             </form>
                           ) : null}
-                          <details className="relative">
-                            <summary className="inline-flex list-none cursor-pointer items-center justify-center rounded-lg border border-border px-2 py-1 text-xs font-medium text-ink hover:bg-surface2">
-                              Editar
-                            </summary>
-                            <Card className="absolute right-0 z-10 mt-2 w-[340px]">
-                              <form action={updateTransaction} className="space-y-3">
-                                <input type="hidden" name="id" value={t.id} />
-                                <div className="grid grid-cols-2 gap-3">
-                                  <div>
-                                    <Label>Tipo</Label>
-                                    <Select name="type" defaultValue={t.type}>
-                                      <option value="receita">Receita</option>
-                                      <option value="despesa">Despesa</option>
-                                      <option value="aporte">Aporte de sócio</option>
-                                    </Select>
-                                  </div>
-                                  <div>
-                                    <Label>Status</Label>
-                                    <Select name="status" defaultValue={t.status}>
-                                      <option value="pendente">Pendente</option>
-                                      <option value="pago">Pago</option>
-                                    </Select>
-                                  </div>
-                                </div>
-                                <div>
-                                  <Label>Categoria</Label>
-                                  <Select name="category" defaultValue={t.category}>
-                                    {CATEGORIES.map((c) => (
-                                      <option key={c} value={c}>
-                                        {c}
-                                      </option>
-                                    ))}
-                                  </Select>
-                                </div>
-                                <div>
-                                  <Label>Valor (R$)</Label>
-                                  <Input name="amount" type="number" step="0.01" min="0" required defaultValue={t.amount} />
-                                </div>
-                                <div>
-                                  <Label>Projeto (opcional)</Label>
-                                  <Select name="project_id" defaultValue={t.project_id ?? ""}>
-                                    <option value="">— nenhum —</option>
-                                    {(projects ?? []).map((p) => (
-                                      <option key={p.id} value={p.id}>
-                                        {p.name}
-                                      </option>
-                                    ))}
-                                  </Select>
-                                </div>
-                                <div>
-                                  <Label>Vencimento</Label>
-                                  <Input name="due_date" type="date" defaultValue={t.due_date ?? ""} />
-                                </div>
-                                <div>
-                                  <Label>Descrição</Label>
-                                  <Textarea name="description" rows={2} defaultValue={t.description ?? ""} />
-                                </div>
-                                <Button type="submit" className="w-full">
-                                  Salvar alterações
-                                </Button>
-                              </form>
-                            </Card>
-                          </details>
-                          <details className="relative">
-                            <summary className="inline-flex list-none cursor-pointer items-center justify-center rounded-lg border border-border px-2 py-1 text-xs font-medium text-ink hover:bg-surface2">
-                              Anexos ({(filesByTx.get(t.id) ?? []).length})
-                            </summary>
-                            <Card className="absolute right-0 z-10 mt-2 w-[300px]">
-                              <form action={uploadTransactionFile} className="space-y-3" encType="multipart/form-data">
-                                <input type="hidden" name="transaction_id" value={t.id} />
-                                <div>
-                                  <Label>Comprovante / nota fiscal</Label>
-                                  <Input name="file" type="file" required />
-                                  <p className="mt-1 text-xs text-muted">Máx. 20MB.</p>
-                                </div>
-                                <Button type="submit" className="w-full">
-                                  Enviar
-                                </Button>
-                              </form>
-                              {(filesByTx.get(t.id) ?? []).length > 0 && (
-                                <ul className="mt-3 space-y-2">
-                                  {(filesByTx.get(t.id) ?? []).map((f) => (
-                                    <li key={f.id} className="flex items-center justify-between gap-2 text-xs">
-                                      <div className="min-w-0">
-                                        {f.signedUrl ? (
-                                          <a
-                                            href={f.signedUrl}
-                                            target="_blank"
-                                            rel="noreferrer"
-                                            className="truncate text-ink hover:text-primary hover:underline"
-                                          >
-                                            {f.file_name}
-                                          </a>
-                                        ) : (
-                                          <span className="truncate text-ink">{f.file_name}</span>
-                                        )}
-                                        <div className="text-muted">{formatFileSize(f.file_size)}</div>
-                                      </div>
-                                      <form action={deleteTransactionFile}>
-                                        <input type="hidden" name="id" value={f.id} />
-                                        <input type="hidden" name="storage_path" value={f.storage_path} />
-                                        <Button variant="danger" className="px-1.5 py-0.5 text-[10px]" type="submit">
-                                          Excluir
-                                        </Button>
-                                      </form>
-                                    </li>
-                                  ))}
-                                </ul>
-                              )}
-                            </Card>
-                          </details>
+                          <TransactionDetailsModal
+                            transaction={t}
+                            projects={projects ?? []}
+                            categories={CATEGORIES}
+                            files={filesByTx.get(t.id) ?? []}
+                            updateTransaction={updateTransaction}
+                            uploadTransactionFile={uploadTransactionFile}
+                            deleteTransactionFile={deleteTransactionFile}
+                          />
                           <form action={deleteTransaction}>
                             <input type="hidden" name="id" value={t.id} />
                             <Button variant="danger" className="px-2 py-1 text-xs" type="submit">
