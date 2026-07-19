@@ -32,3 +32,16 @@ export function formatDateTime(value: string | null | undefined) {
   const d = new Date(value);
   return d.toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" });
 }
+
+export function addMonthsIso(dateIso: string, months: number): string {
+  const d = new Date(dateIso + "T00:00:00");
+  d.setMonth(d.getMonth() + months);
+  return d.toISOString().slice(0, 10);
+}
+
+export function daysUntil(dateIso: string): number {
+  const target = new Date(dateIso + "T00:00:00");
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return Math.round((target.getTime() - today.getTime()) / 86400000);
+}

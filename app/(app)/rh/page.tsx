@@ -1,6 +1,6 @@
 import { getAccessContext } from "@/lib/access";
 import { Card, PageHeader, Badge, Button, Input, Label, Select, EmptyState } from "@/components/ui";
-import { formatCurrency, formatDate } from "@/lib/format";
+import { formatCurrency, formatDate, addMonthsIso, daysUntil } from "@/lib/format";
 import type { Employee } from "@/lib/types";
 import { createEmployee, terminateEmployee, reactivateEmployee } from "./actions";
 import { HiringTypeFields } from "@/components/HiringTypeFields";
@@ -21,6 +21,41 @@ const HIRING_TYPE_LABEL: Record<string, string> = {
   cnpj: "CNPJ (PJ)",
   estagiario: "Estagiário",
 };
+
+type ContractDates = {
+  employee_id: string;
+  cnpj_contract_start_date: string | null;
+  cnpj_prazo_meses: number | null;
+  estagio_end_date: string | null;
+};
+
+function getContractEnd(e: Employee, c?: ContractDates): string | null {
+  if (!c) return null;
+  if (e.hiring_type === "cnpj") {
+    if (c.cnpj_contract_start_date && c.cnpj_prazo_meses) {
+      return addMonthsIso(c.cnpj_contract_start_date, c.cnpj_prazo_meses);
+    }
+    return null;
+  }
+  if (e.hiring_type === "estagiario") {
+    return c.estagio_end_date || null;
+  }
+  return null;
+}
+
+function ContractExpiryCell({ e, c }: { e: Employee; c?: ContractDates }) {
+  const end = getContractEnd(e, c);
+  if (!end) return <span className="text-muted">—</span>;
+  const days = daysUntil(end);
+  const tone = days < 0 ? "bad" : days <= 30 ? "warn" : "good";
+  const label = days < 0 ? `venceu há ${Math.abs(days)}d` : days === 0 ? "vence hoje" : `${days}d`;
+  return (
+    <div>
+      <div className="text-muted">{formatDate(end)}</div>
+      <Badge tone={tone}>{label}</Badge>
+    </div>
+  );
+}
 
 export default async function RhPage({
   searchParams,
@@ -68,6 +103,17 @@ export default async function RhPage({
   const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
   const ativosTotal = (allStats ?? []).filter((e: any) => e.active).length;
   const totalGeral = (allStats ?? []).length;
+
+  const employeeIds = list.map((e) => e.id);
+  const { data: contracts } = employeeIds.length
+    ? await supabase
+        .from("employee_contract_data")
+        .select("employee_id, cnpj_contract_start_date, cnpj_prazo_meses, estagio_end_date")
+        .in("employee_id", employeeIds)
+        .returns<ContractDates[]>()
+    : { data: [] as ContractDates[] };
+  const contractMap = new Map<string, ContractDates>();
+  (contracts ?? []).forEach((c) => contractMap.set(c.employee_id, c));
 
   return (
     <div>
@@ -175,6 +221,7 @@ export default async function RhPage({
                   <th className="py-2 pr-3">Cargo</th>
                   <th className="py-2 pr-3">Depto</th>
                   <th className="py-2 pr-3">Admissão</th>
+                  <th className="py-2 pr-3">Vencimento contrato</th>
                   <th className="py-2 pr-3 text-right">Salário</th>
                   <th className="py-2 pr-3">Status</th>
                   {canEdit && <th className="py-2 pr-3"></th>}
@@ -199,6 +246,9 @@ export default async function RhPage({
                     <td className="py-2 pr-3 text-muted">{e.role || "—"}</td>
                     <td className="py-2 pr-3 text-muted">{e.department || "—"}</td>
                     <td className="py-2 pr-3 text-muted">{formatDate(e.hire_date)}</td>
+                    <td className="py-2 pr-3">
+                      <ContractExpiryCell e={e} c={contractMap.get(e.id)} />
+                    </td>
                     <td className="py-2 pr-3 text-right">{formatCurrency(e.monthly_salary)}</td>
                     <td className="py-2 pr-3">
                       <Badge tone={e.active ? "good" : "bad"}>{e.active ? "ativo" : "inativo"}</Badge>
