@@ -101,8 +101,9 @@ export type Project = {
   clients?: { name: string } | null;
 };
 
-export type TransactionType = "receita" | "despesa";
-export type TransactionStatus = "previsto" | "realizado";
+export type TransactionType = "receita" | "despesa" | "aporte";
+export type TransactionStatus = "pendente" | "pago";
+export type EffectiveTransactionStatus = TransactionStatus | "vencido";
 
 export type Transaction = {
   id: string;

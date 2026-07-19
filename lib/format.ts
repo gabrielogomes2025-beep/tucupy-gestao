@@ -45,3 +45,23 @@ export function daysUntil(dateIso: string): number {
   today.setHours(0, 0, 0, 0);
   return Math.round((target.getTime() - today.getTime()) / 86400000);
 }
+
+export function effectiveTransactionStatus(
+  status: "pendente" | "pago",
+  dueDate: string | null | undefined
+): "pendente" | "pago" | "vencido" {
+  if (status !== "pendente" || !dueDate) return status;
+  return daysUntil(dueDate) < 0 ? "vencido" : "pendente";
+}
+
+export const TRANSACTION_STATUS_LABEL: Record<"pendente" | "pago" | "vencido", string> = {
+  pendente: "Pendente",
+  pago: "Pago",
+  vencido: "Vencido",
+};
+
+export const TRANSACTION_STATUS_TONE: Record<"pendente" | "pago" | "vencido", "good" | "bad" | "warn"> = {
+  pendente: "warn",
+  pago: "good",
+  vencido: "bad",
+};

@@ -36,26 +36,28 @@ export default async function FinanceiroRelatorioPage({
   const { data: transactions } = await supabase
     .from("transactions")
     .select("*")
-    .eq("status", "realizado")
+    .eq("status", "pago")
     .gte("due_date", deDate)
     .lt("due_date", ateEndDate)
     .returns<Transaction[]>();
 
   const list = transactions ?? [];
 
-  const byCategory = new Map<string, { receita: number; despesa: number }>();
-  const byMonth = new Map<string, { receita: number; despesa: number }>();
+  const byCategory = new Map<string, { receita: number; despesa: number; aporte: number }>();
+  const byMonth = new Map<string, { receita: number; despesa: number; aporte: number }>();
 
   for (const t of list) {
-    const cat = byCategory.get(t.category) ?? { receita: 0, despesa: 0 };
+    const cat = byCategory.get(t.category) ?? { receita: 0, despesa: 0, aporte: 0 };
     if (t.type === "receita") cat.receita += Number(t.amount);
-    else cat.despesa += Number(t.amount);
+    else if (t.type === "despesa") cat.despesa += Number(t.amount);
+    else cat.aporte += Number(t.amount);
     byCategory.set(t.category, cat);
 
     const monthKey = (t.due_date ?? "").slice(0, 7) || "sem-data";
-    const mon = byMonth.get(monthKey) ?? { receita: 0, despesa: 0 };
+    const mon = byMonth.get(monthKey) ?? { receita: 0, despesa: 0, aporte: 0 };
     if (t.type === "receita") mon.receita += Number(t.amount);
-    else mon.despesa += Number(t.amount);
+    else if (t.type === "despesa") mon.despesa += Number(t.amount);
+    else mon.aporte += Number(t.amount);
     byMonth.set(monthKey, mon);
   }
 
@@ -69,6 +71,7 @@ export default async function FinanceiroRelatorioPage({
 
   const totalReceita = list.filter((t) => t.type === "receita").reduce((s, t) => s + Number(t.amount), 0);
   const totalDespesa = list.filter((t) => t.type === "despesa").reduce((s, t) => s + Number(t.amount), 0);
+  const totalAporte = list.filter((t) => t.type === "aporte").reduce((s, t) => s + Number(t.amount), 0);
 
   return (
     <div>
@@ -96,7 +99,7 @@ export default async function FinanceiroRelatorioPage({
         }
       />
 
-      <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-3">
+      <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <Card>
           <div className="text-xs uppercase tracking-wide text-muted">Receitas no período</div>
           <div className="mt-2 text-2xl font-semibold text-success">{formatCurrency(totalReceita)}</div>
@@ -104,6 +107,10 @@ export default async function FinanceiroRelatorioPage({
         <Card>
           <div className="text-xs uppercase tracking-wide text-muted">Despesas no período</div>
           <div className="mt-2 text-2xl font-semibold text-danger">{formatCurrency(totalDespesa)}</div>
+        </Card>
+        <Card>
+          <div className="text-xs uppercase tracking-wide text-muted">Aportes no período</div>
+          <div className="mt-2 text-2xl font-semibold text-ink">{formatCurrency(totalAporte)}</div>
         </Card>
         <Card>
           <div className="text-xs uppercase tracking-wide text-muted">Saldo no período</div>

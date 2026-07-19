@@ -12,7 +12,7 @@ export async function createTransaction(formData: FormData) {
   const { error } = await supabase.from("transactions").insert({
     type: String(formData.get("type") || "despesa"),
     category: String(formData.get("category") || "Outro"),
-    status: String(formData.get("status") || "previsto"),
+    status: String(formData.get("status") || "pendente"),
     amount: Number(formData.get("amount") || 0),
     description: String(formData.get("description") || "") || null,
     due_date: String(formData.get("due_date") || "") || null,
@@ -38,7 +38,7 @@ export async function updateTransaction(formData: FormData) {
     .update({
       type: String(formData.get("type") || "despesa"),
       category: String(formData.get("category") || "Outro"),
-      status: String(formData.get("status") || "previsto"),
+      status: String(formData.get("status") || "pendente"),
       amount: Number(formData.get("amount") || 0),
       description: String(formData.get("description") || "") || null,
       due_date: String(formData.get("due_date") || "") || null,
@@ -56,8 +56,8 @@ export async function markStatus(formData: FormData) {
   if (!can("financeiro", "edit")) throw new Error("Sem permissão de edição em Financeiro.");
 
   const id = String(formData.get("id"));
-  const status = String(formData.get("status")) as "previsto" | "realizado";
-  const paid_date = status === "realizado" ? new Date().toISOString().slice(0, 10) : null;
+  const status = String(formData.get("status")) as "pendente" | "pago";
+  const paid_date = status === "pago" ? new Date().toISOString().slice(0, 10) : null;
   const { error } = await supabase.from("transactions").update({ status, paid_date }).eq("id", id);
   if (error) throw new Error(error.message);
   revalidatePath("/financeiro");

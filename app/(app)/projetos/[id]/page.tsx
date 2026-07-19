@@ -1,6 +1,14 @@
 import { getAccessContext } from "@/lib/access";
 import { Card, PageHeader, Badge, Button, Input, Label, Select, Textarea, EmptyState } from "@/components/ui";
-import { formatCurrency, formatDate, formatFileSize, formatDateTime } from "@/lib/format";
+import {
+  formatCurrency,
+  formatDate,
+  formatFileSize,
+  formatDateTime,
+  effectiveTransactionStatus,
+  TRANSACTION_STATUS_LABEL,
+  TRANSACTION_STATUS_TONE,
+} from "@/lib/format";
 import type { Client, Employee, Project, ProjectBudgetCategory, ProjectFile, ProjectTask, ProjectTeamMember, Transaction } from "@/lib/types";
 import {
   uploadProjectFile,
@@ -47,6 +55,18 @@ const CATEGORY_LABEL: Record<string, string> = {
   outro: "Outro",
 };
 
+const TX_TYPE_LABEL: Record<string, string> = {
+  receita: "Receita",
+  despesa: "Despesa",
+  aporte: "Aporte",
+};
+
+const TX_TYPE_TONE: Record<string, "good" | "bad" | "default"> = {
+  receita: "good",
+  despesa: "bad",
+  aporte: "default",
+};
+
 const TASK_STATUS_LABEL: Record<string, string> = {
   todo: "A fazer",
   doing: "Em andamento",
@@ -90,7 +110,7 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
 
   const txList = projectTransactions ?? [];
   const txRealizado = txList
-    .filter((t) => t.status === "realizado")
+    .filter((t) => t.status === "pago")
     .reduce((s, t) => s + Number(t.amount) * (t.type === "despesa" ? -1 : 1), 0);
 
   const [{ data: teamMembers }, { data: activeEmployees }, { data: budgetCategories }, { data: tasks }] = await Promise.all([
@@ -124,7 +144,7 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
   const categories = budgetCategories ?? [];
   const realizadoPorCategoria = new Map<string, number>();
   txList
-    .filter((t) => t.type === "despesa" && t.status === "realizado")
+    .filter((t) => t.type === "despesa" && t.status === "pago")
     .forEach((t) => realizadoPorCategoria.set(t.category, (realizadoPorCategoria.get(t.category) ?? 0) + Number(t.amount)));
 
   const { data: files } = await supabase
@@ -422,13 +442,14 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
                         <Select name="type" defaultValue="receita">
                           <option value="receita">Receita</option>
                           <option value="despesa">Despesa</option>
+                          <option value="aporte">Aporte de sócio</option>
                         </Select>
                       </div>
                       <div>
                         <Label>Status</Label>
-                        <Select name="status" defaultValue="previsto">
-                          <option value="previsto">Previsto</option>
-                          <option value="realizado">Realizado</option>
+                        <Select name="status" defaultValue="pendente">
+                          <option value="pendente">Pendente</option>
+                          <option value="pago">Pago</option>
                         </Select>
                       </div>
                     </div>
@@ -479,13 +500,16 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
                       <div className="text-xs text-muted">{formatDate(t.due_date)}</div>
                     </div>
                     <div className="flex items-center gap-2">
-                      <Badge tone={t.type === "receita" ? "good" : "bad"}>{t.type}</Badge>
-                      <span className={`font-medium ${t.type === "receita" ? "text-primary" : "text-danger"}`}>{formatCurrency(t.amount)}</span>
-                      <Badge tone={t.status === "realizado" ? "good" : "warn"}>{t.status}</Badge>
-                      {canEditFinanceiro && t.status === "previsto" && (
+                      <Badge tone={TX_TYPE_TONE[t.type] ?? "default"}>{TX_TYPE_LABEL[t.type] ?? t.type}</Badge>
+                      <span className={`font-medium ${t.type === "despesa" ? "text-danger" : "text-primary"}`}>{formatCurrency(t.amount)}</span>
+                      {(() => {
+                        const eff = effectiveTransactionStatus(t.status as "pendente" | "pago", t.due_date);
+                        return <Badge tone={TRANSACTION_STATUS_TONE[eff]}>{TRANSACTION_STATUS_LABEL[eff]}</Badge>;
+                      })()}
+                      {canEditFinanceiro && t.status === "pendente" && (
                         <form action={markStatus}>
                           <input type="hidden" name="id" value={t.id} />
-                          <input type="hidden" name="status" value="realizado" />
+                          <input type="hidden" name="status" value="pago" />
                           <Button variant="ghost" className="px-2 py-1 text-xs" type="submit">
                             Confirmar
                           </Button>

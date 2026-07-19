@@ -48,14 +48,14 @@ export default async function DashboardPage() {
       : Promise.resolve({ data: [] as Project[] }),
     seeRh ? supabase.from("payroll_entries").select("net_amount, status").eq("ref_month", monthStart) : Promise.resolve({ data: [] }),
     seeFinanceiro
-      ? supabase.from("transactions").select("type, status, amount, due_date").eq("status", "realizado").gte("due_date", monthsAgoISO(5))
+      ? supabase.from("transactions").select("type, status, amount, due_date").eq("status", "pago").gte("due_date", monthsAgoISO(5))
       : Promise.resolve({ data: [] as any[] }),
   ]);
 
   const transactions = txRes.data ?? [];
-  const receitasRealizadas = transactions.filter((t) => t.type === "receita" && t.status === "realizado").reduce((s, t) => s + Number(t.amount), 0);
-  const despesasRealizadas = transactions.filter((t) => t.type === "despesa" && t.status === "realizado").reduce((s, t) => s + Number(t.amount), 0);
-  const aVencer = transactions.filter((t) => t.status === "previsto").reduce((s, t) => s + Number(t.amount) * (t.type === "despesa" ? -1 : 1), 0);
+  const receitasRealizadas = transactions.filter((t) => t.type === "receita" && t.status === "pago").reduce((s, t) => s + Number(t.amount), 0);
+  const despesasRealizadas = transactions.filter((t) => t.type === "despesa" && t.status === "pago").reduce((s, t) => s + Number(t.amount), 0);
+  const aVencer = transactions.filter((t) => t.status === "pendente" && t.type !== "aporte").reduce((s, t) => s + Number(t.amount) * (t.type === "despesa" ? -1 : 1), 0);
   const saldo = receitasRealizadas - despesasRealizadas;
 
   const employeesAtivos = employeesRes.data?.length ?? 0;
@@ -70,7 +70,7 @@ export default async function DashboardPage() {
     const entry = chartMap.get(key);
     if (!entry) continue;
     if (t.type === "receita") entry.receita += Number(t.amount);
-    else entry.despesa += Number(t.amount);
+    else if (t.type === "despesa") entry.despesa += Number(t.amount);
   }
   const chartData = chartMonths.map((m) => ({ month: m, ...chartMap.get(m)! }));
   const chartMax = Math.max(1, ...chartData.flatMap((d) => [d.receita, d.despesa]));
@@ -88,7 +88,7 @@ export default async function DashboardPage() {
             <Kpi label="Saldo realizado (mês)" value={formatCurrency(saldo)} tone={saldo >= 0 ? "good" : "bad"} />
             <Kpi label="Receitas realizadas" value={formatCurrency(receitasRealizadas)} tone="good" />
             <Kpi label="Despesas realizadas" value={formatCurrency(despesasRealizadas)} tone="bad" />
-            <Kpi label="Previsto (a vencer)" value={formatCurrency(aVencer)} tone="warn" />
+            <Kpi label="Pendente (a vencer)" value={formatCurrency(aVencer)} tone="warn" />
           </>
         )}
         {seeRh && (

@@ -1,6 +1,13 @@
 import { getAccessContext } from "@/lib/access";
 import { Card, PageHeader, Badge, Button, Input, Label, Select, Textarea, EmptyState, Kpi } from "@/components/ui";
-import { formatCurrency, formatDate, formatFileSize } from "@/lib/format";
+import {
+  formatCurrency,
+  formatDate,
+  formatFileSize,
+  effectiveTransactionStatus,
+  TRANSACTION_STATUS_LABEL,
+  TRANSACTION_STATUS_TONE,
+} from "@/lib/format";
 import type { Project, RecurringTransaction, Transaction, TransactionFile } from "@/lib/types";
 import {
   createTransaction,
@@ -27,8 +34,21 @@ const CATEGORIES = [
   "Marketing",
   "Impostos",
   "Aluguel",
+  "Aporte de sócio",
   "Outro",
 ];
+
+const TYPE_LABEL: Record<string, string> = {
+  receita: "Receita",
+  despesa: "Despesa",
+  aporte: "Aporte",
+};
+
+const TYPE_TONE: Record<string, "good" | "bad" | "default"> = {
+  receita: "good",
+  despesa: "bad",
+  aporte: "default",
+};
 
 const PAGE_SIZE = 20;
 
@@ -70,16 +90,19 @@ export default async function FinanceiroPage({
     return qs ? `/financeiro?${qs}` : "/financeiro";
   }
 
+  const todayIso = new Date().toISOString().slice(0, 10);
+
   let txQuery = supabase
     .from("transactions")
     .select("*, projects(name)", { count: "exact" })
     .order("due_date", { ascending: false });
   if (q) txQuery = txQuery.or(`category.ilike.%${q}%,description.ilike.%${q}%`);
   if (tipoFiltro) txQuery = txQuery.eq("type", tipoFiltro);
-  if (statusFiltro) txQuery = txQuery.eq("status", statusFiltro);
+  if (statusFiltro === "vencido") txQuery = txQuery.eq("status", "pendente").lt("due_date", todayIso);
+  else if (statusFiltro) txQuery = txQuery.eq("status", statusFiltro);
   txQuery = txQuery.range(from, to);
 
-  const [{ data: transactions, count: txCount }, { data: projects }, { data: allTimeAmounts }, { data: recurring }, { data: previstoAll }] =
+  const [{ data: transactions, count: txCount }, { data: projects }, { data: allTimeAmounts }, { data: recurring }, { data: pendenteAll }] =
     await Promise.all([
       txQuery.returns<Transaction[]>(),
       supabase.from("projects").select("id, name").order("name").returns<Pick<Project, "id" | "name">[]>(),
@@ -92,7 +115,7 @@ export default async function FinanceiroPage({
       supabase
         .from("transactions")
         .select("*, projects(name)")
-        .eq("status", "previsto")
+        .eq("status", "pendente")
         .order("due_date", { ascending: true })
         .returns<Transaction[]>(),
     ]);
@@ -101,10 +124,10 @@ export default async function FinanceiroPage({
   const totalCount = txCount ?? 0;
   const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
   const recurringList = recurring ?? [];
-  const previstoList = previstoAll ?? [];
+  const pendenteList = pendenteAll ?? [];
 
   const saldoAcumulado = (allTimeAmounts ?? []).reduce((s, t: any) => {
-    if (t.status !== "realizado") return s;
+    if (t.status !== "pago") return s;
     return s + Number(t.amount) * (t.type === "despesa" ? -1 : 1);
   }, 0);
 
@@ -127,12 +150,13 @@ export default async function FinanceiroPage({
     filesByTx.set(f.transaction_id, [...(filesByTx.get(f.transaction_id) ?? []), entry]);
   }
 
-  const receitas = (allTimeAmounts ?? []).filter((t: any) => t.type === "receita" && t.status === "realizado").reduce((s, t: any) => s + Number(t.amount), 0);
-  const despesas = (allTimeAmounts ?? []).filter((t: any) => t.type === "despesa" && t.status === "realizado").reduce((s, t: any) => s + Number(t.amount), 0);
+  const receitas = (allTimeAmounts ?? []).filter((t: any) => t.type === "receita" && t.status === "pago").reduce((s, t: any) => s + Number(t.amount), 0);
+  const despesas = (allTimeAmounts ?? []).filter((t: any) => t.type === "despesa" && t.status === "pago").reduce((s, t: any) => s + Number(t.amount), 0);
+  const aportes = (allTimeAmounts ?? []).filter((t: any) => t.type === "aporte" && t.status === "pago").reduce((s, t: any) => s + Number(t.amount), 0);
 
   const byDueDateAsc = (a: Transaction, b: Transaction) => (a.due_date ?? "9999-99-99").localeCompare(b.due_date ?? "9999-99-99");
-  const pagamentosAgendados = previstoList.filter((t) => t.type === "despesa").sort(byDueDateAsc);
-  const recebimentosAgendados = previstoList.filter((t) => t.type === "receita").sort(byDueDateAsc);
+  const pagamentosAgendados = pendenteList.filter((t) => t.type === "despesa").sort(byDueDateAsc);
+  const recebimentosAgendados = pendenteList.filter((t) => t.type === "receita").sort(byDueDateAsc);
   const totalPagamentosAgendados = pagamentosAgendados.reduce((s, t) => s + Number(t.amount), 0);
   const totalRecebimentosAgendados = recebimentosAgendados.reduce((s, t) => s + Number(t.amount), 0);
 
@@ -143,8 +167,8 @@ export default async function FinanceiroPage({
     "60": { receita: 0, despesa: 0 },
     "90": { receita: 0, despesa: 0 },
   };
-  for (const t of previstoList) {
-    if (!t.due_date) continue;
+  for (const t of pendenteList) {
+    if (!t.due_date || t.type === "aporte") continue;
     const b = bucketizeDueDate(t.due_date, startOfToday);
     if (b === "later") continue;
     buckets[b][t.type] += Number(t.amount);
@@ -190,13 +214,14 @@ export default async function FinanceiroPage({
                       <Select name="type" defaultValue="despesa">
                         <option value="receita">Receita</option>
                         <option value="despesa">Despesa</option>
+                        <option value="aporte">Aporte de sócio</option>
                       </Select>
                     </div>
                     <div>
                       <Label>Status</Label>
-                      <Select name="status" defaultValue="previsto">
-                        <option value="previsto">Previsto</option>
-                        <option value="realizado">Realizado</option>
+                      <Select name="status" defaultValue="pendente">
+                        <option value="pendente">Pendente</option>
+                        <option value="pago">Pago</option>
                       </Select>
                     </div>
                   </div>
@@ -244,9 +269,10 @@ export default async function FinanceiroPage({
         }
       />
 
-      <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
         <Kpi label="Receitas realizadas" value={formatCurrency(receitas)} tone="good" />
         <Kpi label="Despesas realizadas" value={formatCurrency(despesas)} tone="bad" />
+        <Kpi label="Aportes de sócios" value={formatCurrency(aportes)} />
         <Kpi label="Saldo (últimos lançamentos)" value={formatCurrency(receitas - despesas)} tone={receitas - despesas >= 0 ? "good" : "bad"} />
         <Kpi label="Saldo de caixa acumulado" value={formatCurrency(saldoAcumulado)} tone={saldoAcumulado >= 0 ? "good" : "bad"} />
       </div>
@@ -280,7 +306,7 @@ export default async function FinanceiroPage({
                     {canEdit && (
                       <form action={markStatus}>
                         <input type="hidden" name="id" value={t.id} />
-                        <input type="hidden" name="status" value="realizado" />
+                        <input type="hidden" name="status" value="pago" />
                         <Button variant="ghost" className="px-2 py-1 text-xs" type="submit">
                           Marcar pago
                         </Button>
@@ -315,7 +341,7 @@ export default async function FinanceiroPage({
                     {canEdit && (
                       <form action={markStatus}>
                         <input type="hidden" name="id" value={t.id} />
-                        <input type="hidden" name="status" value="realizado" />
+                        <input type="hidden" name="status" value="pago" />
                         <Button variant="ghost" className="px-2 py-1 text-xs" type="submit">
                           Marcar recebido
                         </Button>
@@ -331,7 +357,7 @@ export default async function FinanceiroPage({
 
       <Card className="mb-6">
         <h2 className="mb-1 text-sm font-semibold text-ink">Projeção de fluxo de caixa</h2>
-        <p className="mb-3 text-xs text-muted">Com base nos lançamentos previstos (inclui os já vencidos no primeiro período).</p>
+        <p className="mb-3 text-xs text-muted">Com base nos lançamentos pendentes (inclui os já vencidos no primeiro período).</p>
         <div className="overflow-x-auto scrollbar-thin">
           <table className="w-full text-left text-sm">
             <thead>
@@ -359,7 +385,7 @@ export default async function FinanceiroPage({
           </table>
         </div>
         <div className="mt-3 text-sm">
-          <span className="text-muted">Saldo projetado em 90 dias (caixa atual + previstos): </span>
+          <span className="text-muted">Saldo projetado em 90 dias (caixa atual + pendentes): </span>
           <span className={`font-semibold ${saldoProjetado90 >= 0 ? "text-success" : "text-danger"}`}>{formatCurrency(saldoProjetado90)}</span>
         </div>
       </Card>
@@ -385,6 +411,7 @@ export default async function FinanceiroPage({
                       <Select name="type" defaultValue="despesa">
                         <option value="receita">Receita</option>
                         <option value="despesa">Despesa</option>
+                        <option value="aporte">Aporte de sócio</option>
                       </Select>
                     </div>
                     <div>
@@ -451,8 +478,8 @@ export default async function FinanceiroPage({
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
-                  <Badge tone={r.type === "receita" ? "good" : "bad"}>{r.type}</Badge>
-                  <span className={`font-medium ${r.type === "receita" ? "text-primary" : "text-danger"}`}>{formatCurrency(r.amount)}</span>
+                  <Badge tone={TYPE_TONE[r.type] ?? "default"}>{TYPE_LABEL[r.type] ?? r.type}</Badge>
+                  <span className={`font-medium ${r.type === "despesa" ? "text-danger" : "text-primary"}`}>{formatCurrency(r.amount)}</span>
                   <Badge tone={r.active ? "good" : "default"}>{r.active ? "ativo" : "pausado"}</Badge>
                   {canEdit && (
                     <>
@@ -492,14 +519,16 @@ export default async function FinanceiroPage({
               <option value="">Todos</option>
               <option value="receita">Receita</option>
               <option value="despesa">Despesa</option>
+              <option value="aporte">Aporte</option>
             </Select>
           </div>
           <div>
             <Label>Status</Label>
             <Select name="status" defaultValue={statusFiltro} className="!w-auto">
               <option value="">Todos</option>
-              <option value="previsto">Previsto</option>
-              <option value="realizado">Realizado</option>
+              <option value="pendente">Pendente</option>
+              <option value="pago">Pago</option>
+              <option value="vencido">Vencido</option>
             </Select>
           </div>
           <Button variant="ghost" type="submit">
@@ -532,21 +561,24 @@ export default async function FinanceiroPage({
                     <td className="py-2 pr-3 text-muted">{t.projects?.name || "—"}</td>
                     <td className="py-2 pr-3 text-muted">{t.description || "—"}</td>
                     <td className="py-2 pr-3">
-                      <Badge tone={t.type === "receita" ? "good" : "bad"}>{t.type}</Badge>
+                      <Badge tone={TYPE_TONE[t.type] ?? "default"}>{TYPE_LABEL[t.type] ?? t.type}</Badge>
                     </td>
-                    <td className={`py-2 pr-3 text-right font-medium ${t.type === "receita" ? "text-primary" : "text-danger"}`}>
+                    <td className={`py-2 pr-3 text-right font-medium ${t.type === "despesa" ? "text-danger" : "text-primary"}`}>
                       {formatCurrency(t.amount)}
                     </td>
                     <td className="py-2 pr-3">
-                      <Badge tone={t.status === "realizado" ? "good" : "warn"}>{t.status}</Badge>
+                      {(() => {
+                        const eff = effectiveTransactionStatus(t.status as "pendente" | "pago", t.due_date);
+                        return <Badge tone={TRANSACTION_STATUS_TONE[eff]}>{TRANSACTION_STATUS_LABEL[eff]}</Badge>;
+                      })()}
                     </td>
                     {canEdit && (
                       <td className="py-2 pr-3">
                         <div className="flex gap-2">
-                          {t.status === "previsto" ? (
+                          {t.status === "pendente" ? (
                             <form action={markStatus}>
                               <input type="hidden" name="id" value={t.id} />
-                              <input type="hidden" name="status" value="realizado" />
+                              <input type="hidden" name="status" value="pago" />
                               <Button variant="ghost" className="px-2 py-1 text-xs" type="submit">
                                 Marcar pago
                               </Button>
@@ -565,13 +597,14 @@ export default async function FinanceiroPage({
                                     <Select name="type" defaultValue={t.type}>
                                       <option value="receita">Receita</option>
                                       <option value="despesa">Despesa</option>
+                                      <option value="aporte">Aporte de sócio</option>
                                     </Select>
                                   </div>
                                   <div>
                                     <Label>Status</Label>
                                     <Select name="status" defaultValue={t.status}>
-                                      <option value="previsto">Previsto</option>
-                                      <option value="realizado">Realizado</option>
+                                      <option value="pendente">Pendente</option>
+                                      <option value="pago">Pago</option>
                                     </Select>
                                   </div>
                                 </div>
