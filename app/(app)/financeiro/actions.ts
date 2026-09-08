@@ -163,6 +163,7 @@ export async function createRecurringTransaction(formData: FormData) {
 
   if (error) throw new Error(error.message);
   revalidatePath("/financeiro");
+  if (projectId) revalidatePath(`/projetos/${projectId}`);
 }
 
 export async function toggleRecurringTransaction(formData: FormData) {
@@ -170,10 +171,12 @@ export async function toggleRecurringTransaction(formData: FormData) {
   if (!can("financeiro", "edit")) throw new Error("Sem permissão de edição em Financeiro.");
 
   const id = String(formData.get("id"));
+  const projectId = String(formData.get("project_id") || "");
   const active = formData.get("active") === "true";
   const { error } = await supabase.from("recurring_transactions").update({ active: !active }).eq("id", id);
   if (error) throw new Error(error.message);
   revalidatePath("/financeiro");
+  if (projectId) revalidatePath(`/projetos/${projectId}`);
 }
 
 export async function deleteRecurringTransaction(formData: FormData) {
@@ -181,7 +184,9 @@ export async function deleteRecurringTransaction(formData: FormData) {
   if (!can("financeiro", "edit")) throw new Error("Sem permissão de edição em Financeiro.");
 
   const id = String(formData.get("id"));
+  const projectId = String(formData.get("project_id") || "");
   const { error } = await supabase.from("recurring_transactions").delete().eq("id", id);
   if (error) throw new Error(error.message);
   revalidatePath("/financeiro");
+  if (projectId) revalidatePath(`/projetos/${projectId}`);
 }

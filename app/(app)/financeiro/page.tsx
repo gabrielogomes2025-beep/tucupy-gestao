@@ -487,12 +487,14 @@ export default async function FinanceiroPage({
                       <form action={toggleRecurringTransaction}>
                         <input type="hidden" name="id" value={r.id} />
                         <input type="hidden" name="active" value={String(r.active)} />
+                        <input type="hidden" name="project_id" value={r.project_id ?? ""} />
                         <Button variant="ghost" className="px-2 py-1 text-xs" type="submit">
                           {r.active ? "Pausar" : "Ativar"}
                         </Button>
                       </form>
                       <form action={deleteRecurringTransaction}>
                         <input type="hidden" name="id" value={r.id} />
+                        <input type="hidden" name="project_id" value={r.project_id ?? ""} />
                         <Button variant="danger" className="px-2 py-1 text-xs" type="submit">
                           Excluir
                         </Button>

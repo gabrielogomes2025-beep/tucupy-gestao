@@ -31,11 +31,16 @@ import {
   createTransactionFileUploadUrl,
   finalizeTransactionFileUpload,
   deleteTransactionFile,
+  createRecurringTransaction,
+  toggleRecurringTransaction,
+  deleteRecurringTransaction,
 } from "../../financeiro/actions";
 import { TransactionDetailsModal } from "@/components/TransactionDetailsModal";
-import type { TransactionFile } from "@/lib/types";
+import type { TransactionFile, RecurringTransaction } from "@/lib/types";
 import { redirect, notFound } from "next/navigation";
 import Link from "next/link";
+
+const DAY_OPTIONS = Array.from({ length: 28 }, (_, i) => i + 1);
 
 const FIN_CATEGORIES = [
   "Serviços prestados",
@@ -139,6 +144,16 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
         .order("created_at", { ascending: false })
         .returns<TransactionFile[]>()
     : { data: [] as TransactionFile[] };
+
+  const { data: projectRecurring } = canViewFinanceiro
+    ? await supabase
+        .from("recurring_transactions")
+        .select("*")
+        .eq("project_id", id)
+        .order("created_at", { ascending: false })
+        .returns<RecurringTransaction[]>()
+    : { data: [] as RecurringTransaction[] };
+  const recurringList = projectRecurring ?? [];
 
   const filesByTx = new Map<string, (TransactionFile & { signedUrl: string | null })[]>();
   for (const f of txFiles ?? []) {
@@ -574,6 +589,113 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
                 ))}
               </ul>
             </>
+          )}
+        </Card>
+      )}
+
+      {canViewFinanceiro && (
+        <Card className="mb-6">
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h2 className="text-sm font-semibold text-ink">Mensalidades recorrentes ({recurringList.length})</h2>
+              <p className="mt-1 text-xs text-muted">
+                Gera um lançamento automaticamente todo mês, no dia definido, vinculado a este projeto.
+              </p>
+            </div>
+            {canEditFinanceiro && (
+              <details className="relative">
+                <summary className="inline-flex list-none cursor-pointer items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2 text-sm font-medium text-[#0f0f0f] hover:bg-primary-dark">
+                  + Recorrente
+                </summary>
+                <Card className="absolute right-0 z-10 mt-2 w-[360px]">
+                  <form action={createRecurringTransaction} className="space-y-3">
+                    <input type="hidden" name="project_id" value={project.id} />
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <Label>Tipo</Label>
+                        <Select name="type" defaultValue="receita">
+                          <option value="receita">Receita</option>
+                          <option value="despesa">Despesa</option>
+                          <option value="aporte">Aporte de sócio</option>
+                        </Select>
+                      </div>
+                      <div>
+                        <Label>Dia do mês</Label>
+                        <Select name="day_of_month" defaultValue="5">
+                          {DAY_OPTIONS.map((d) => (
+                            <option key={d} value={d}>
+                              {d}
+                            </option>
+                          ))}
+                        </Select>
+                      </div>
+                    </div>
+                    <div>
+                      <Label>Categoria</Label>
+                      <Select name="category" defaultValue="Mensalidade/retainer">
+                        {FIN_CATEGORIES.map((c) => (
+                          <option key={c} value={c}>
+                            {c}
+                          </option>
+                        ))}
+                      </Select>
+                    </div>
+                    <div>
+                      <Label>Valor (R$)</Label>
+                      <Input name="amount" type="number" step="0.01" min="0" required defaultValue={project.budget_total} />
+                    </div>
+                    <div>
+                      <Label>Descrição</Label>
+                      <Textarea name="description" rows={2} defaultValue={`Referente ao projeto ${project.name}`} />
+                    </div>
+                    <Button type="submit" className="w-full">
+                      Salvar recorrente
+                    </Button>
+                  </form>
+                </Card>
+              </details>
+            )}
+          </div>
+
+          {recurringList.length === 0 ? (
+            <EmptyState>Nenhuma mensalidade recorrente cadastrada para este projeto.</EmptyState>
+          ) : (
+            <ul className="space-y-2">
+              {recurringList.map((r) => (
+                <li key={r.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border px-3 py-2 text-sm">
+                  <div className="min-w-0">
+                    <div className="font-medium">{r.category}</div>
+                    <div className="text-xs text-muted">
+                      Todo dia {r.day_of_month} {r.description ? `· ${r.description}` : ""}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Badge tone={TX_TYPE_TONE[r.type] ?? "default"}>{TX_TYPE_LABEL[r.type] ?? r.type}</Badge>
+                    <span className={`font-medium ${r.type === "despesa" ? "text-danger" : "text-primary"}`}>{formatCurrency(r.amount)}</span>
+                    <Badge tone={r.active ? "good" : "default"}>{r.active ? "ativo" : "pausado"}</Badge>
+                    {canEditFinanceiro && (
+                      <>
+                        <form action={toggleRecurringTransaction}>
+                          <input type="hidden" name="id" value={r.id} />
+                          <input type="hidden" name="active" value={String(r.active)} />
+                          <input type="hidden" name="project_id" value={project.id} />
+                          <Button variant="ghost" className="px-2 py-1 text-xs" type="submit">
+                            {r.active ? "Pausar" : "Ativar"}
+                          </Button>
+                        </form>
+                        <form action={deleteRecurringTransaction}>
+                          <input type="hidden" name="id" value={r.id} />
+                          <input type="hidden" name="project_id" value={project.id} />
+                          <Button variant="danger" className="px-2 py-1 text-xs" type="submit">
+                            Excluir
+                          </Button>
+                        </form>
+                      </>
+                    )}
+                  </div>
+                </li>
+              ))}
+            </ul>
           )}
         </Card>
       )}
