@@ -23,7 +23,17 @@ import {
   updateProjectTask,
   deleteProjectTask,
 } from "../actions";
-import { createTransaction, markStatus } from "../../financeiro/actions";
+import {
+  createTransaction,
+  updateTransaction,
+  markStatus,
+  deleteTransaction,
+  createTransactionFileUploadUrl,
+  finalizeTransactionFileUpload,
+  deleteTransactionFile,
+} from "../../financeiro/actions";
+import { TransactionDetailsModal } from "@/components/TransactionDetailsModal";
+import type { TransactionFile } from "@/lib/types";
 import { redirect, notFound } from "next/navigation";
 import Link from "next/link";
 
@@ -36,6 +46,7 @@ const FIN_CATEGORIES = [
   "Marketing",
   "Impostos",
   "Aluguel",
+  "Aporte de sócio",
   "Outro",
 ];
 
@@ -112,6 +123,29 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
   const txRealizado = txList
     .filter((t) => t.status === "pago")
     .reduce((s, t) => s + Number(t.amount) * (t.type === "despesa" ? -1 : 1), 0);
+
+  const { data: finProjects } = canEditFinanceiro
+    ? await supabase.from("projects").select("id, name").order("name").returns<Pick<Project, "id" | "name">[]>()
+    : { data: [] as Pick<Project, "id" | "name">[] };
+
+  const { data: txFiles } = txList.length && canEditFinanceiro
+    ? await supabase
+        .from("transaction_files")
+        .select("*")
+        .in(
+          "transaction_id",
+          txList.map((t) => t.id)
+        )
+        .order("created_at", { ascending: false })
+        .returns<TransactionFile[]>()
+    : { data: [] as TransactionFile[] };
+
+  const filesByTx = new Map<string, (TransactionFile & { signedUrl: string | null })[]>();
+  for (const f of txFiles ?? []) {
+    const { data: signed } = await supabase.storage.from("transaction-files").createSignedUrl(f.storage_path, 60 * 60);
+    const entry = { ...f, signedUrl: signed?.signedUrl ?? null };
+    filesByTx.set(f.transaction_id, [...(filesByTx.get(f.transaction_id) ?? []), entry]);
+  }
 
   const [{ data: teamMembers }, { data: activeEmployees }, { data: budgetCategories }, { data: tasks }] = await Promise.all([
     canViewTeam
@@ -512,6 +546,26 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
                           <input type="hidden" name="status" value="pago" />
                           <Button variant="ghost" className="px-2 py-1 text-xs" type="submit">
                             Confirmar
+                          </Button>
+                        </form>
+                      )}
+                      {canEditFinanceiro && (
+                        <TransactionDetailsModal
+                          transaction={t}
+                          projects={finProjects ?? []}
+                          categories={FIN_CATEGORIES}
+                          files={filesByTx.get(t.id) ?? []}
+                          updateTransaction={updateTransaction}
+                          createTransactionFileUploadUrl={createTransactionFileUploadUrl}
+                          finalizeTransactionFileUpload={finalizeTransactionFileUpload}
+                          deleteTransactionFile={deleteTransactionFile}
+                        />
+                      )}
+                      {canEditFinanceiro && (
+                        <form action={deleteTransaction}>
+                          <input type="hidden" name="id" value={t.id} />
+                          <Button variant="danger" className="px-2 py-1 text-xs" type="submit">
+                            Excluir
                           </Button>
                         </form>
                       )}
