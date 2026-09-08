@@ -410,7 +410,7 @@ export async function deleteEmployeeDocument(formData: FormData) {
   if (employeeId) revalidatePath(`/rh/${employeeId}`);
 }
 
-const SOURCE_DOC_CATEGORIES: EmployeeDocumentCategory[] = [
+const SOURCE_DOC_CATEGORIES: string[] = [
   "documento_pessoal",
   "cartao_cnpj",
   "comprovante_matricula",

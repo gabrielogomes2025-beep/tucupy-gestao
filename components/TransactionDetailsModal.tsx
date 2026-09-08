@@ -132,13 +132,12 @@ export function TransactionDetailsModal({
             </div>
             <div>
               <Label>Categoria</Label>
-              <Select name="category" defaultValue={transaction.category}>
+              <Input name="category" list={`tx-categories-${transaction.id}`} defaultValue={transaction.category} placeholder="Escolha ou digite uma categoria" />
+              <datalist id={`tx-categories-${transaction.id}`}>
                 {categories.map((c) => (
-                  <option key={c} value={c}>
-                    {c}
-                  </option>
+                  <option key={c} value={c} />
                 ))}
-              </Select>
+              </datalist>
             </div>
             <div>
               <Label>Valor (R$)</Label>

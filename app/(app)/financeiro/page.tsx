@@ -228,13 +228,12 @@ export default async function FinanceiroPage({
                   </div>
                   <div>
                     <Label>Categoria</Label>
-                    <Select name="category" defaultValue="Outro">
+                    <Input name="category" list="tx-categories-new" defaultValue="Outro" placeholder="Escolha ou digite uma categoria" />
+                    <datalist id="tx-categories-new">
                       {CATEGORIES.map((c) => (
-                        <option key={c} value={c}>
-                          {c}
-                        </option>
+                        <option key={c} value={c} />
                       ))}
-                    </Select>
+                    </datalist>
                   </div>
                   <div>
                     <Label>Valor (R$)</Label>
@@ -428,13 +427,12 @@ export default async function FinanceiroPage({
                   </div>
                   <div>
                     <Label>Categoria</Label>
-                    <Select name="category" defaultValue="Outro">
+                    <Input name="category" list="tx-categories-recurring" defaultValue="Outro" placeholder="Escolha ou digite uma categoria" />
+                    <datalist id="tx-categories-recurring">
                       {CATEGORIES.map((c) => (
-                        <option key={c} value={c}>
-                          {c}
-                        </option>
+                        <option key={c} value={c} />
                       ))}
-                    </Select>
+                    </datalist>
                   </div>
                   <div>
                     <Label>Valor (R$)</Label>

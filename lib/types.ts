@@ -236,7 +236,7 @@ export type EmployeeDocument = {
   storage_path: string;
   file_size: number | null;
   content_type: string | null;
-  category: EmployeeDocumentCategory;
+  category: string;
   created_at: string;
 };
 

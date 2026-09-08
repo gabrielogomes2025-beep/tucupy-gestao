@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState, useTransition } from "react";
-import { Button, Select } from "@/components/ui";
+import { Button } from "@/components/ui";
 import { createClient } from "@/lib/supabase/client";
 
 const MAX_DOC_BYTES = 20 * 1024 * 1024; // 20MB
@@ -9,16 +9,18 @@ const MAX_DOC_BYTES = 20 * 1024 * 1024; // 20MB
 export function EmployeeDocumentUpload({
   employeeId,
   categoryOptions,
+  defaultCategory,
   createEmployeeDocumentUploadUrl,
   finalizeEmployeeDocumentUpload,
 }: {
   employeeId: string;
   categoryOptions: [string, string][];
+  defaultCategory?: string;
   createEmployeeDocumentUploadUrl: (formData: FormData) => Promise<{ storagePath: string; token: string }>;
   finalizeEmployeeDocumentUpload: (formData: FormData) => Promise<void>;
 }) {
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [category, setCategory] = useState(categoryOptions[0]?.[0] ?? "outro");
+  const [category, setCategory] = useState(defaultCategory ?? categoryOptions[0]?.[1] ?? "Outro");
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
@@ -71,13 +73,20 @@ export function EmployeeDocumentUpload({
 
   return (
     <form onSubmit={handleSubmit} className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
-      <Select value={category} onChange={(e) => setCategory(e.target.value)}>
-        {categoryOptions.map(([v, l]) => (
-          <option key={v} value={v}>
-            {l}
-          </option>
-        ))}
-      </Select>
+      <div>
+        <input
+          list="doc-categories"
+          value={category}
+          onChange={(e) => setCategory(e.target.value)}
+          placeholder="Escolha ou digite uma categoria"
+          className="w-full rounded-lg px-3 py-2 text-sm outline-none focus:border-primary"
+        />
+        <datalist id="doc-categories">
+          {categoryOptions.map(([v, l]) => (
+            <option key={v} value={l} />
+          ))}
+        </datalist>
+      </div>
       <input
         ref={fileInputRef}
         type="file"

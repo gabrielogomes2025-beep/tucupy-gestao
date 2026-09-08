@@ -375,6 +375,7 @@ export default async function EmployeeDetailPage({ params }: { params: Promise<{
         <EmployeeDocumentUpload
           employeeId={employee.id}
           categoryOptions={Object.entries(DOC_CATEGORY_LABEL)}
+          defaultCategory={DOC_CATEGORY_LABEL.documento_pessoal}
           createEmployeeDocumentUploadUrl={createEmployeeDocumentUploadUrl}
           finalizeEmployeeDocumentUpload={finalizeEmployeeDocumentUpload}
         />

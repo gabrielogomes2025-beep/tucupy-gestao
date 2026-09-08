@@ -504,13 +504,12 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
                     </div>
                     <div>
                       <Label>Categoria</Label>
-                      <Select name="category" defaultValue="Serviços prestados">
+                      <Input name="category" list="proj-tx-categories-new" defaultValue="Serviços prestados" placeholder="Escolha ou digite uma categoria" />
+                      <datalist id="proj-tx-categories-new">
                         {FIN_CATEGORIES.map((c) => (
-                          <option key={c} value={c}>
-                            {c}
-                          </option>
+                          <option key={c} value={c} />
                         ))}
-                      </Select>
+                      </datalist>
                     </div>
                     <div>
                       <Label>Valor (R$)</Label>
@@ -632,13 +631,12 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
                     </div>
                     <div>
                       <Label>Categoria</Label>
-                      <Select name="category" defaultValue="Mensalidade/retainer">
+                      <Input name="category" list="proj-tx-categories-recurring" defaultValue="Mensalidade/retainer" placeholder="Escolha ou digite uma categoria" />
+                      <datalist id="proj-tx-categories-recurring">
                         {FIN_CATEGORIES.map((c) => (
-                          <option key={c} value={c}>
-                            {c}
-                          </option>
+                          <option key={c} value={c} />
                         ))}
-                      </Select>
+                      </datalist>
                     </div>
                     <div>
                       <Label>Valor (R$)</Label>
@@ -793,13 +791,12 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
                     <input type="hidden" name="project_id" value={project.id} />
                     <div>
                       <Label>Categoria</Label>
-                      <Select name="category" defaultValue="Outro">
+                      <Input name="category" list="proj-budget-categories" defaultValue="Outro" placeholder="Escolha ou digite uma categoria" />
+                      <datalist id="proj-budget-categories">
                         {FIN_CATEGORIES.map((c) => (
-                          <option key={c} value={c}>
-                            {c}
-                          </option>
+                          <option key={c} value={c} />
                         ))}
-                      </Select>
+                      </datalist>
                     </div>
                     <div>
                       <Label>Valor orçado (R$)</Label>
